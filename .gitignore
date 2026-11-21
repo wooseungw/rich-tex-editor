@@ -1,0 +1,5 @@
+node_modules/
+.orca/
+.playwright-mcp/
+.omc/
+.DS_Store

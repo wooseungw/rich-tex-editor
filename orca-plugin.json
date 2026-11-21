@@ -1,0 +1,69 @@
+{
+  "manifestVersion": 2,
+  "id": "rich-tex-editor",
+  "name": "Rich TeX Editor",
+  "version": "0.1.0",
+  "description": "A rich LaTeX editor for .tex files: a visual mode that renders math, headings, tables and images as you type, a split mode with a live preview, and drag-and-drop images.",
+  "author": {
+    "name": "Seungwoo Woo",
+    "url": "https://github.com/wooseungw"
+  },
+  "repository": "https://github.com/wooseungw/rich-tex-editor",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "cover": {
+    "path": "assets/cover.jpg",
+    "alt": "Rich TeX Editor in visual mode: a LaTeX paper with a typeset title, numbered sections, KaTeX equations and resolved references."
+  },
+  "screenshots": [
+    {
+      "path": "assets/screenshot-visual.png",
+      "alt": "Visual mode: headings, bold and italic text, inline and display math rendered in place, with references shown as numbers.",
+      "caption": "Visual mode renders the document as you type; put the cursor on anything to edit its source."
+    },
+    {
+      "path": "assets/screenshot-figures.png",
+      "alt": "Visual mode with a numbered theorem, an aligned equation, a rendered table and a PDF figure drawn in place.",
+      "caption": "Tables, theorems and figures (PDF included) are drawn in place; drop an image to add one."
+    },
+    {
+      "path": "assets/screenshot-split-dark.png",
+      "alt": "Split mode in a dark theme: LaTeX source with line numbers beside a live preview with a theorem, an aligned equation and a table.",
+      "caption": "Split mode: source beside a live preview that scrolls with it."
+    }
+  ],
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "worker/main.ts",
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    }
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "id": "latex",
+        "title": "Rich TeX",
+        "extensions": [
+          ".tex",
+          ".ltx",
+          ".latex"
+        ],
+        "entry": "editor/index.html",
+        "frame": "isolated"
+      }
+    ],
+    "newFiles": [
+      {
+        "id": "latex-article",
+        "title": "LaTeX document",
+        "extension": ".tex",
+        "template": "templates/article.tex"
+      }
+    ]
+  }
+}

@@ -1,0 +1,1004 @@
+/* Rich TeX Editor: the editor chrome and CodeMirror. Colours come from Orca's theme variables
+   (--orca-*), which Orca updates in place when the theme changes; html gets .light or .dark. */
+
+:root {
+  --rt-mono-font: var(--orca-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  --rt-mono-size: 13px;
+  --rt-doc-font: "KaTeX_Main", "Latin Modern Roman", "Computer Modern Serif", Georgia, "Apple SD Gothic Neo", "Noto Serif CJK KR", serif;
+  --rt-doc-size: 17px;
+  --rt-ui-font: var(--orca-font-sans, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --rt-radius: var(--orca-radius, 6px);
+  --rt-link: #0969da;
+  --rt-tok-command: #8250df;
+  --rt-tok-env: #0a7a62;
+  --rt-tok-math: #0550ae;
+  --rt-tok-number: #9a4a00;
+  --rt-tok-bracket: color-mix(in srgb, var(--orca-foreground) 55%, transparent);
+  --rt-tok-comment: var(--orca-muted-foreground);
+  --rt-select: color-mix(in srgb, var(--rt-link) 24%, transparent);
+}
+html.dark {
+  --rt-link: #6cb6ff;
+  --rt-tok-command: #c8a2ff;
+  --rt-tok-env: #6fd3b3;
+  --rt-tok-math: #8ab8ff;
+  --rt-tok-number: #f0a36b;
+  --rt-select: color-mix(in srgb, var(--rt-link) 30%, transparent);
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--orca-background);
+  color: var(--orca-foreground);
+  font: 13px/1.4 var(--rt-ui-font);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.rt-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Toolbar */
+
+.rt-toolbar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--orca-border);
+  background: var(--orca-background);
+  user-select: none;
+}
+.rt-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 5px;
+  border-left: 1px solid var(--orca-border);
+}
+.rt-segmented + .rt-group {
+  border-left: 0;
+}
+.rt-spacer {
+  flex: 1 1 8px;
+}
+.rt-spacer + .rt-words + .rt-group {
+  border-left: 0;
+}
+.rt-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: calc(var(--rt-radius) - 2px);
+  background: transparent;
+  color: var(--orca-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+.rt-btn:hover {
+  background: var(--orca-accent);
+  color: var(--orca-accent-foreground);
+}
+.rt-btn:focus-visible,
+.rt-select:focus-visible {
+  outline: 2px solid var(--orca-ring);
+  outline-offset: 1px;
+}
+.rt-btn.rt-active {
+  background: var(--orca-secondary);
+  color: var(--orca-secondary-foreground);
+}
+.rt-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+  background: transparent;
+}
+.rt-btn-text {
+  font-family: var(--rt-mono-font);
+  font-size: 12px;
+  letter-spacing: -0.02em;
+}
+.rt-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.rt-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin-right: 6px;
+  border-radius: var(--rt-radius);
+  background: var(--orca-muted);
+}
+.rt-seg {
+  height: 22px;
+  padding: 0 9px 0 7px;
+  font-size: 12px;
+  color: var(--orca-muted-foreground);
+}
+.rt-seg .rt-icon {
+  width: 13px;
+  height: 13px;
+}
+.rt-seg:hover {
+  background: transparent;
+  color: var(--orca-foreground);
+}
+.rt-seg.rt-active,
+.rt-seg.rt-active:hover {
+  background: var(--orca-background);
+  color: var(--orca-foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.14), 0 0 0 1px var(--orca-border);
+}
+.rt-select {
+  appearance: none;
+  height: 26px;
+  max-width: 150px;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--orca-input, var(--orca-border));
+  border-radius: calc(var(--rt-radius) - 2px);
+  background: var(--orca-background)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 7px center / 11px;
+  color: var(--orca-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+.rt-select:hover {
+  border-color: color-mix(in srgb, var(--orca-foreground) 30%, var(--orca-border));
+}
+.rt-select:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.rt-words {
+  padding: 0 8px;
+  color: var(--orca-muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rt-symbols {
+  position: absolute;
+  top: calc(100% + 2px);
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(9, 30px);
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--orca-border);
+  border-radius: var(--rt-radius);
+  background: var(--orca-popover);
+  color: var(--orca-popover-foreground);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.2);
+}
+.rt-symbols[hidden] {
+  display: none;
+}
+.rt-symbol {
+  height: 30px;
+  font-family: var(--rt-doc-font);
+  font-size: 17px;
+}
+.rt-banner {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--orca-border);
+  background: var(--orca-muted);
+  color: var(--orca-muted-foreground);
+  font-size: 12px;
+}
+.rt-fatal {
+  margin: 16px;
+  color: var(--orca-destructive);
+  white-space: pre-wrap;
+  font: 13px/1.5 var(--rt-mono-font);
+}
+
+/* Panes */
+
+.rt-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.rt-editor-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.rt-divider,
+.rt-preview-pane {
+  display: none;
+}
+.rt-main[data-mode="split"] .rt-editor-pane {
+  flex: 0 0 var(--rt-split, 50%);
+}
+.rt-main[data-mode="split"] .rt-divider {
+  display: block;
+  flex: 0 0 7px;
+  margin: 0 -3px;
+  z-index: 2;
+  cursor: col-resize;
+  background: linear-gradient(to right, transparent 3px, var(--orca-border) 3px, var(--orca-border) 4px, transparent 4px);
+}
+.rt-main[data-mode="split"] .rt-divider:hover,
+.rt-resizing .rt-divider {
+  background: linear-gradient(to right, transparent 2px, var(--orca-ring) 2px, var(--orca-ring) 5px, transparent 5px);
+}
+.rt-main[data-mode="split"] .rt-preview-pane {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: auto;
+  background: var(--orca-background);
+  outline: none;
+}
+.rt-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+@media (max-width: 640px) {
+  .rt-main[data-mode="split"] {
+    flex-direction: column;
+  }
+  .rt-main[data-mode="split"] .rt-editor-pane {
+    flex: 0 0 45%;
+    border-bottom: 1px solid var(--orca-border);
+  }
+  .rt-main[data-mode="split"] .rt-divider {
+    display: none;
+  }
+}
+
+/* CodeMirror, both modes */
+
+.rt-editor-pane .cm-editor {
+  height: 100%;
+  background: var(--orca-background);
+  color: var(--orca-foreground);
+}
+.rt-editor-pane .cm-editor.cm-focused {
+  outline: none;
+}
+.rt-editor-pane .cm-scroller {
+  font-family: var(--rt-mono-font);
+  font-size: var(--rt-mono-size);
+  line-height: 1.6;
+}
+.rt-editor-pane .cm-content {
+  caret-color: var(--orca-foreground);
+}
+.rt-editor-pane .cm-cursor,
+.rt-editor-pane .cm-dropCursor {
+  border-left: 1.5px solid var(--orca-foreground);
+}
+.rt-editor-pane .cm-selectionLayer .cm-selectionBackground {
+  background: var(--rt-select) !important;
+}
+.rt-editor-pane .cm-gutters {
+  border-right: 1px solid var(--orca-border);
+  background: var(--orca-background);
+  color: color-mix(in srgb, var(--orca-muted-foreground) 75%, transparent);
+}
+.rt-editor-pane .cm-activeLine {
+  background: color-mix(in srgb, var(--orca-foreground) 4%, transparent);
+}
+.rt-editor-pane .cm-activeLineGutter {
+  background: transparent;
+  color: var(--orca-foreground);
+}
+.rt-editor-pane .cm-matchingBracket {
+  background: color-mix(in srgb, var(--rt-link) 20%, transparent);
+  outline: none;
+}
+.rt-editor-pane .cm-nonmatchingBracket {
+  background: color-mix(in srgb, var(--orca-destructive) 20%, transparent);
+}
+.rt-editor-pane .cm-selectionMatch {
+  background: color-mix(in srgb, #e3b341 26%, transparent);
+}
+.rt-editor-pane .cm-searchMatch {
+  background: color-mix(in srgb, #e3b341 36%, transparent);
+  outline: 1px solid color-mix(in srgb, #e3b341 70%, transparent);
+}
+.rt-editor-pane .cm-searchMatch-selected {
+  background: color-mix(in srgb, #fb8f44 50%, transparent);
+}
+.rt-editor-pane .cm-placeholder {
+  color: var(--orca-muted-foreground);
+}
+.rt-editor-pane .cm-panels {
+  border-color: var(--orca-border);
+  background: var(--orca-card);
+  color: var(--orca-card-foreground);
+  font-family: var(--rt-ui-font);
+  font-size: 12px;
+}
+.rt-editor-pane .cm-panels input,
+.rt-editor-pane .cm-panels button {
+  border: 1px solid var(--orca-input, var(--orca-border));
+  border-radius: calc(var(--rt-radius) - 2px);
+  background: var(--orca-background);
+  background-image: none;
+  color: var(--orca-foreground);
+  font: inherit;
+}
+.rt-editor-pane .cm-panels label {
+  font-size: 12px;
+}
+.rt-editor-pane .cm-tooltip {
+  border: 1px solid var(--orca-border);
+  border-radius: var(--rt-radius);
+  background: var(--orca-popover);
+  color: var(--orca-popover-foreground);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+.rt-editor-pane .cm-tooltip-autocomplete > ul {
+  font-family: var(--rt-mono-font);
+  font-size: 12.5px;
+}
+.rt-editor-pane .cm-tooltip-autocomplete > ul > li {
+  padding: 2px 8px;
+}
+.rt-editor-pane .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--orca-accent);
+  color: var(--orca-accent-foreground);
+}
+.rt-editor-pane .cm-completionDetail {
+  margin-left: 1.2em;
+  color: var(--orca-muted-foreground);
+  font-family: var(--rt-ui-font);
+  font-style: normal;
+}
+.rt-editor-pane .cm-completionMatchedText {
+  text-decoration: none;
+  font-weight: 700;
+}
+.rt-editor-pane .cm-snippetField {
+  background: color-mix(in srgb, var(--rt-link) 12%, transparent);
+  border-radius: 2px;
+}
+
+.tok-command {
+  color: var(--rt-tok-command);
+}
+.tok-env {
+  color: var(--rt-tok-env);
+}
+.tok-comment {
+  color: var(--rt-tok-comment);
+  font-style: italic;
+}
+.tok-bracket {
+  color: var(--rt-tok-bracket);
+}
+.tok-atom,
+.tok-math {
+  color: var(--rt-tok-math);
+}
+.tok-number {
+  color: var(--rt-tok-number);
+}
+
+/* Visual mode: the document set like a page */
+
+.rt-editor-pane .cm-rt-visual .cm-scroller {
+  font-family: var(--rt-doc-font);
+  font-size: var(--rt-doc-size);
+  line-height: 1.62;
+}
+.rt-editor-pane .cm-rt-visual .cm-content {
+  box-sizing: border-box;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 28px 36px 40vh;
+}
+.rt-editor-pane .cm-rt-visual .cm-line {
+  padding: 0 2px;
+}
+.rt-editor-pane .cm-rt-visual .cm-activeLine {
+  background: transparent;
+}
+.cm-rt-visual .tok-command,
+.cm-rt-visual .tok-env,
+.cm-rt-visual .tok-bracket {
+  font-family: var(--rt-mono-font);
+  font-size: 0.8em;
+}
+.cm-rt-visual .cm-rt-preamble,
+.cm-rt-visual .cm-rt-code-line {
+  font-family: var(--rt-mono-font);
+  font-size: calc(var(--rt-doc-size) * 0.76);
+  line-height: 1.55;
+}
+.cm-rt-visual .cm-rt-preamble {
+  color: var(--orca-muted-foreground);
+}
+.cm-rt-visual .cm-rt-preamble .tok-command,
+.cm-rt-visual .cm-rt-preamble .tok-env,
+.cm-rt-visual .cm-rt-preamble .tok-bracket,
+.cm-rt-visual .cm-rt-code-line .tok-command,
+.cm-rt-visual .cm-rt-code-line .tok-bracket {
+  font-size: 1em;
+}
+.cm-rt-visual .cm-rt-code-line {
+  background: var(--orca-muted);
+}
+.cm-rt-comment {
+  color: var(--rt-tok-comment);
+  font-style: italic;
+}
+.cm-rt-visual .cm-rt-comment {
+  font-family: var(--rt-ui-font);
+  font-size: 0.8em;
+}
+.cm-rt-markup {
+  opacity: 0.6;
+}
+
+/* Math */
+
+.cm-rt-math {
+  cursor: text;
+}
+.cm-rt-math-inline {
+  padding: 0 1px;
+  border-radius: 3px;
+}
+.cm-rt-math-inline.cm-rt-math-display {
+  display: inline-block;
+  width: 100%;
+  text-align: center;
+}
+.cm-rt-math-block {
+  display: block;
+  padding: 4px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  border-radius: var(--rt-radius);
+  text-align: center;
+}
+.cm-rt-math-inline:hover,
+.cm-rt-math-block:hover {
+  background: color-mix(in srgb, var(--rt-link) 9%, transparent);
+}
+.cm-rt-math .katex-display {
+  margin: 0.25em 0;
+  /* KaTeX's tag column overhangs its box by a pixel or two. */
+  padding: 0 0.25em;
+}
+.cm-rt-math-preview {
+  display: block;
+  margin: 2px 0 10px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  border: 1px dashed var(--orca-border);
+  border-radius: var(--rt-radius);
+  background: var(--orca-card);
+  color: var(--orca-card-foreground);
+  font-family: var(--rt-doc-font);
+  font-size: var(--rt-doc-size);
+  text-align: center;
+}
+.cm-rt-math-preview .katex-display {
+  margin: 0;
+  padding: 0 0.25em;
+}
+.cm-rt-math-source {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--rt-tok-math) 7%, transparent);
+}
+.cm-rt-visual .cm-rt-math-source {
+  font-family: var(--rt-mono-font);
+  font-size: 0.82em;
+}
+.cm-rt-visual .cm-rt-math-source .tok-command,
+.cm-rt-visual .cm-rt-math-source .tok-bracket,
+.cm-rt-visual .cm-rt-math-source .tok-env {
+  font-size: 1em;
+}
+.rt-math-error-src {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--orca-destructive) 10%, transparent);
+  color: var(--orca-destructive);
+  font-family: var(--rt-mono-font);
+  font-size: 0.82em;
+  text-decoration: underline wavy color-mix(in srgb, var(--orca-destructive) 60%, transparent);
+  text-underline-offset: 3px;
+}
+.cm-rt-math-tooltip {
+  max-width: min(80vw, 640px);
+  padding: 6px 12px;
+  overflow-x: auto;
+  font-size: 18px;
+}
+.cm-rt-math-stale {
+  opacity: 0.45;
+}
+.cm-rt-math-tooltip-error:empty {
+  display: none;
+}
+.cm-rt-math-tooltip-error {
+  max-width: 420px;
+  margin-top: 4px;
+  color: var(--orca-muted-foreground);
+  font: 12px/1.4 var(--rt-ui-font);
+  white-space: normal;
+}
+
+/* Headings */
+
+.cm-rt-visual .cm-rt-heading {
+  font-weight: 700;
+  line-height: 1.3;
+}
+.cm-rt-visual .cm-rt-part,
+.cm-rt-visual .cm-rt-chapter {
+  padding-top: 0.9em;
+  padding-bottom: 0.2em;
+  font-size: 1.8em;
+}
+.cm-rt-visual .cm-rt-section {
+  padding-top: 0.75em;
+  padding-bottom: 0.1em;
+  font-size: 1.42em;
+}
+.cm-rt-visual .cm-rt-subsection {
+  padding-top: 0.6em;
+  font-size: 1.2em;
+}
+.cm-rt-visual .cm-rt-subsubsection {
+  padding-top: 0.45em;
+  font-size: 1.06em;
+}
+.cm-rt-visual .cm-rt-paragraph,
+.cm-rt-visual .cm-rt-subparagraph {
+  padding-top: 0.3em;
+}
+.cm-rt-secnum {
+  margin-right: 0.65em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline formatting */
+
+.cm-rt-visual .cm-rt-bold {
+  font-weight: 700;
+}
+.cm-rt-visual .cm-rt-italic,
+.cm-rt-visual .cm-rt-emph,
+.cm-rt-visual .cm-rt-slanted {
+  font-style: italic;
+}
+.cm-rt-visual .cm-rt-upright,
+.cm-rt-visual .cm-rt-serif {
+  font-style: normal;
+}
+.cm-rt-visual .cm-rt-underline {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cm-rt-visual .cm-rt-strike {
+  text-decoration: line-through;
+}
+.cm-rt-visual .cm-rt-mono {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--orca-muted);
+  font-family: var(--rt-mono-font);
+  font-size: 0.84em;
+}
+.cm-rt-visual .cm-rt-smallcaps {
+  font-variant: small-caps;
+}
+.cm-rt-visual .cm-rt-sans {
+  font-family: var(--rt-ui-font);
+}
+.cm-rt-visual .cm-rt-super {
+  font-size: 0.72em;
+  vertical-align: super;
+}
+.cm-rt-visual .cm-rt-sub {
+  font-size: 0.72em;
+  vertical-align: sub;
+}
+.cm-rt-visual .cm-rt-footnote {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--orca-muted);
+  color: var(--orca-muted-foreground);
+  font-size: 0.84em;
+}
+.cm-rt-fnmark {
+  margin: 0 3px 0 1px;
+  color: var(--rt-link);
+  font-size: 0.68em;
+  font-weight: 700;
+  vertical-align: super;
+  cursor: pointer;
+}
+.cm-rt-visual .cm-rt-link {
+  color: var(--rt-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--rt-link) 45%, transparent);
+  text-underline-offset: 3px;
+}
+.cm-rt-visual .cm-rt-caption {
+  font-size: 0.93em;
+}
+.cm-rt-visual .cm-rt-caption-line {
+  text-align: center;
+}
+.cm-rt-caption-label {
+  margin-right: 0.4em;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cm-rt-symbol {
+  cursor: text;
+}
+
+/* Chips: references, labels, environments, images */
+
+.cm-rt-chip {
+  display: inline-block;
+  max-width: 26em;
+  padding: 0 7px;
+  overflow: hidden;
+  border: 1px solid var(--orca-border);
+  border-radius: 999px;
+  background: var(--orca-muted);
+  color: var(--orca-muted-foreground);
+  font: 500 11.5px/1.55 var(--rt-ui-font);
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: 1px;
+  cursor: pointer;
+}
+.cm-rt-chip:hover {
+  border-color: color-mix(in srgb, var(--orca-foreground) 30%, var(--orca-border));
+  color: var(--orca-foreground);
+}
+.cm-rt-ref,
+.cm-rt-cite {
+  display: inline;
+  max-width: none;
+  overflow: visible;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--rt-link);
+  font: inherit;
+  letter-spacing: normal;
+  vertical-align: baseline;
+}
+.cm-rt-ref:hover,
+.cm-rt-cite:hover {
+  background: color-mix(in srgb, var(--rt-link) 10%, transparent);
+  color: var(--rt-link);
+}
+.cm-rt-ref-missing,
+.cm-rt-ref-missing:hover {
+  color: var(--orca-destructive);
+}
+.cm-rt-label {
+  padding: 0 3px;
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.7;
+}
+.cm-rt-label::before {
+  content: "#";
+  margin-right: 1px;
+  opacity: 0.7;
+}
+.cm-rt-env {
+  border-color: transparent;
+}
+.cm-rt-input::before {
+  content: "↳ ";
+}
+.cm-rt-env-end {
+  opacity: 0.75;
+}
+
+/* Lists */
+
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-1 { padding-left: 1.7em; }
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-2 { padding-left: 3.4em; }
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-3 { padding-left: 5.1em; }
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-4 { padding-left: 6.8em; }
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-5 { padding-left: 8.5em; }
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-6 { padding-left: 10.2em; }
+.rt-editor-pane .cm-rt-visual .cm-rt-indent-7 { padding-left: 11.9em; }
+.cm-rt-item {
+  display: inline-block;
+  min-width: 1.1em;
+  margin-left: -1.35em;
+  margin-right: 0.25em;
+  color: var(--orca-muted-foreground);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: pointer;
+}
+.cm-rt-item-enumerate {
+  min-width: 1.5em;
+  margin-left: -1.75em;
+}
+.cm-rt-item-custom,
+.cm-rt-item-description {
+  min-width: 0;
+  margin-left: 0;
+  margin-right: 0.35em;
+  color: var(--orca-foreground);
+  font-weight: 700;
+  text-align: left;
+}
+
+/* Logos and the title block */
+
+.cm-rt-logo {
+  font-family: var(--rt-doc-font);
+  white-space: nowrap;
+  cursor: text;
+}
+.cm-rt-logo-a {
+  margin: 0 -0.12em 0 -0.32em;
+  font-size: 0.74em;
+  vertical-align: 0.26em;
+}
+.cm-rt-logo-e {
+  margin: 0 -0.11em 0 -0.16em;
+  vertical-align: -0.22em;
+}
+.cm-rt-logo-eps {
+  font-style: italic;
+}
+.cm-rt-titleblock {
+  display: block;
+  padding: 18px 0 14px;
+  border-radius: var(--rt-radius);
+  text-align: center;
+  cursor: pointer;
+}
+.cm-rt-titleblock:hover {
+  background: color-mix(in srgb, var(--orca-foreground) 4%, transparent);
+}
+.cm-rt-titleblock-title {
+  font-size: 1.75em;
+  line-height: 1.25;
+}
+.cm-rt-titleblock-author {
+  margin-top: 10px;
+  font-size: 1.1em;
+}
+.cm-rt-titleblock-date {
+  margin-top: 4px;
+  color: var(--orca-muted-foreground);
+}
+
+/* Folded layout lines: \begin{itemize}, \centering and friends become a thin gap */
+
+.rt-editor-pane .cm-rt-visual .cm-line.cm-rt-folded {
+  height: 10px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 1px;
+  line-height: 10px;
+}
+
+/* The folded preamble */
+
+.cm-rt-preamble-fold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--orca-border);
+  border-radius: var(--rt-radius);
+  background: var(--orca-muted);
+  color: var(--orca-muted-foreground);
+  font: 12px/1.5 var(--rt-ui-font);
+  cursor: pointer;
+}
+.cm-rt-preamble-fold:hover {
+  border-color: color-mix(in srgb, var(--orca-foreground) 30%, var(--orca-border));
+}
+.cm-rt-preamble-fold-label {
+  color: var(--orca-foreground);
+  font-weight: 600;
+}
+.cm-rt-preamble-fold-summary {
+  font-family: var(--rt-mono-font);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-rt-preamble-fold-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Abstract, references, theorems and proofs */
+
+.cm-rt-visual .cm-rt-envtitle-line {
+  padding-top: 0.4em;
+  text-align: center;
+}
+.cm-rt-envtitle {
+  font-size: 0.92em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.cm-rt-envtitle-refs {
+  cursor: pointer;
+}
+.rt-editor-pane .cm-rt-visual .cm-rt-block-abstract {
+  padding-left: 2.6em;
+  padding-right: 2.6em;
+  font-size: 0.93em;
+}
+.cm-rt-visual .cm-rt-block-plain {
+  font-style: italic;
+}
+.cm-rt-theorem-label {
+  font-style: normal;
+  cursor: pointer;
+}
+.cm-rt-theorem-label .cm-rt-envtitle-name {
+  font-weight: 700;
+}
+.cm-rt-proof-label .cm-rt-envtitle-name {
+  font-style: italic;
+  font-weight: 400;
+}
+.cm-rt-visual .cm-rt-theorem-line {
+  padding-top: 0.35em;
+}
+.cm-rt-visual .cm-rt-qed-line {
+  text-align: right;
+}
+.cm-rt-qed {
+  cursor: pointer;
+}
+.cm-rt-bibnum {
+  display: inline-block;
+  min-width: 2em;
+  color: var(--orca-muted-foreground);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+/* Tables and other previews embedded in the editor */
+
+.rt-preview.rt-embed {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+  line-height: 1.45;
+}
+.rt-embed .rt-par {
+  margin: 0;
+  text-indent: 0;
+}
+.cm-rt-table {
+  display: block;
+  padding: 4px 0;
+  border-radius: var(--rt-radius);
+  text-align: center;
+  cursor: pointer;
+}
+.cm-rt-table:hover {
+  background: color-mix(in srgb, var(--rt-link) 6%, transparent);
+}
+.cm-rt-table .rt-table-wrap {
+  margin: 0;
+}
+.cm-rt-footnote-tooltip {
+  display: flex;
+  gap: 8px;
+  max-width: 440px;
+  padding: 8px 12px;
+  font-family: var(--rt-doc-font);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.cm-rt-footnote-tooltip-number {
+  color: var(--rt-link);
+  font-size: 0.75em;
+  font-weight: 700;
+  line-height: 1.9;
+}
+
+/* Images */
+
+.cm-rt-image {
+  cursor: pointer;
+}
+.cm-rt-image-block {
+  display: block;
+  padding: 6px 0;
+  text-align: center;
+}
+.cm-rt-image img {
+  max-width: 100%;
+  border-radius: 3px;
+}
+.cm-rt-image-block img {
+  max-height: 420px;
+  object-fit: contain;
+}
+html.dark .cm-rt-image img {
+  background: #ffffff;
+}
+.cm-rt-image-inline img {
+  max-height: 1.5em;
+  vertical-align: middle;
+}
+.cm-rt-image-name {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px dashed var(--orca-border);
+  border-radius: var(--rt-radius);
+  color: var(--orca-muted-foreground);
+  font: 12px/1.6 var(--rt-mono-font);
+}
+.cm-rt-image-name::before {
+  content: "▣ ";
+}
+.cm-rt-image-block .cm-rt-image-name {
+  padding: 28px 24px;
+}
+.cm-rt-image-loading .cm-rt-image-name {
+  opacity: 0.6;
+}
+.cm-rt-image-missing .cm-rt-image-name {
+  border-color: color-mix(in srgb, var(--orca-destructive) 45%, transparent);
+}
+.cm-rt-dropping .cm-content {
+  outline: 2px dashed color-mix(in srgb, var(--rt-link) 55%, transparent);
+  outline-offset: -6px;
+}
+.rt-words.rt-status-error {
+  color: var(--orca-destructive);
+}
+
+/* \label{…}, \input{…} and unknown environments: their own source, quietly */
+
+.cm-rt-visual .cm-rt-quiet {
+  color: var(--orca-muted-foreground);
+  font-family: var(--rt-mono-font);
+  font-size: 0.72em;
+  opacity: 0.75;
+}
+.cm-rt-visual .cm-rt-quiet [class^="tok-"],
+.cm-rt-visual .cm-rt-quiet [class*=" tok-"] {
+  color: inherit;
+  font-size: 1em;
+  font-style: normal;
+}

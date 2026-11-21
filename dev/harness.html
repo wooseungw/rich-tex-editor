@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rich TeX Editor harness</title>
+<!-- Development only: runs the built editor in a plain browser with a stand-in `orca` object.
+     Serve the repository root (python3 -m http.server) and open /dev/harness.html?mode=split&theme=dark -->
+<script src="orca-mock.js"></script>
+<link rel="stylesheet" href="../editor/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="../editor/editor.css">
+<link rel="stylesheet" href="../editor/preview.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="../editor/app.js"></script>
+</body>
+</html>

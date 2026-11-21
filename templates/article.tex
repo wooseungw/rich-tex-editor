@@ -1,0 +1,29 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\title{Untitled}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+A short summary of the document.
+\end{abstract}
+
+\section{Introduction}\label{sec:intro}
+Write here. Inline math looks like $e^{i\pi} + 1 = 0$, and a numbered equation like
+\begin{equation}
+  \int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}. \label{eq:gauss}
+\end{equation}
+Equation~\eqref{eq:gauss} is referenced from Section~\ref{sec:intro}.
+
+\begin{itemize}
+  \item A \textbf{bold} point.
+  \item An \emph{emphasized} one.
+\end{itemize}
+
+\end{document}

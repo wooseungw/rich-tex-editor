@@ -1,0 +1,25 @@
+\documentclass{article}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+
+\begin{document}
+
+\section{Figures}
+A PNG found through \verb|\graphicspath| and without an extension:
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\linewidth]{contours}
+  \caption{A raster figure.}\label{fig:png}
+\end{figure}
+
+A PDF figure, drawn from its first page:
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.6\linewidth]{figures/descent.pdf}
+  \caption{A vector figure made with TikZ.}\label{fig:pdf}
+\end{figure}
+
+Figures~\ref{fig:png} and~\ref{fig:pdf}.
+\end{document}
