@@ -317,3 +317,24 @@ export class ImageWidget extends RevealWidget {
     return this.block ? 240 : -1
   }
 }
+
+/** Where an environment begins or ends: its name and a hairline, quiet enough to read past. */
+export class BoundaryWidget extends RevealWidget {
+  constructor(
+    readonly label: string,
+    readonly begin: boolean,
+    reveal: number
+  ) {
+    super(reveal)
+  }
+  override eq(other: BoundaryWidget): boolean {
+    return other.label === this.label && other.begin === this.begin && other.reveal === this.reveal
+  }
+  override toDOM(): HTMLElement {
+    const el = document.createElement('span')
+    el.className = `cm-rt-boundary ${this.begin ? 'cm-rt-boundary-begin' : 'cm-rt-boundary-end'}`
+    el.textContent = this.begin ? this.label : `end ${this.label.replace(/ \[.*\]$/, '')}`
+    el.title = this.begin ? `\\begin{${this.label.replace(/ \[.*\]$/, '')}}` : `\\end{${this.label}}`
+    return this.mark(el)
+  }
+}

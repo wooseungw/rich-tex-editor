@@ -26,6 +26,8 @@ export interface ToolbarHost {
   exportHtml(): void
   /** Opens a file picker and inserts the chosen image as a figure. */
   insertImage(): void
+  getBoundaries(): boolean
+  setBoundaries(on: boolean): void
 }
 
 interface FormatButton {
@@ -112,6 +114,7 @@ export class Toolbar {
   private readonly undoBtn: HTMLButtonElement
   private readonly redoBtn: HTMLButtonElement
   private readonly symbols: HTMLElement
+  private readonly boundaryBtn: HTMLButtonElement
   private readOnly = false
 
   constructor(private readonly host: ToolbarHost) {
@@ -197,6 +200,12 @@ export class Toolbar {
       openSearchPanel(view)
     })
 
+    this.boundaryBtn = button('', 'Show where environments begin and end', 'braces')
+    this.boundaryBtn.addEventListener('click', () => {
+      this.host.setBoundaries(!this.host.getBoundaries())
+      this.update(this.host.getView())
+    })
+
     const exportBtn = button('', 'Export as HTML', 'download')
     exportBtn.addEventListener('click', () => this.host.exportHtml())
 
@@ -227,7 +236,7 @@ export class Toolbar {
       group(insert),
       spacer,
       this.words,
-      group(find, exportBtn),
+      group(this.boundaryBtn, find, exportBtn),
       this.symbols
     )
   }
@@ -323,6 +332,11 @@ export class Toolbar {
 
   update(view: EditorView): void {
     const mode = this.host.getMode()
+    const on = this.host.getBoundaries()
+    this.boundaryBtn.classList.toggle('rt-active', on)
+    this.boundaryBtn.setAttribute('aria-pressed', String(on))
+    // Only the visual view folds or marks environment lines.
+    this.boundaryBtn.hidden = mode !== 'visual'
     for (const [m, b] of this.modeButtons) {
       b.setAttribute('aria-checked', String(m === mode))
       b.classList.toggle('rt-active', m === mode)

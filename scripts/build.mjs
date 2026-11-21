@@ -1,40 +1,63 @@
 // Bundles src/ into editor/app.js (unminified, so the shipped code stays readable) and copies
-// KaTeX's stylesheet and fonts next to it. Orca loads plugin files as they are in the folder,
-// so editor/app.js and editor/vendor/ are committed; run `npm run build` after editing src/.
-import { build, context } from 'esbuild'
-import { cp, mkdir, readdir, rm } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+// KaTeX and pdf.js next to it. Orca loads plugin files as they are in the folder, so editor/app.js
+// and editor/vendor/ are committed; run `npm run build` after editing src/.
+//
+// Files are written only when their bytes change: Orca reloads a development plugin's open
+// editors whenever a file in its folder changes, and a rebuild that rewrites everything would
+// flash them for nothing.
+import { context } from 'esbuild'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const katexDist = join(root, 'node_modules/katex/dist')
-const vendor = join(root, 'editor/vendor/katex')
 
-const pdfjsDist = join(root, 'node_modules/pdfjs-dist')
-const pdfjsVendor = join(root, 'editor/vendor/pdfjs')
-
-/** pdf.js draws PDF figures; the editor loads it on first use, so it ships beside app.js. */
-async function copyPdfjs() {
-  await rm(pdfjsVendor, { recursive: true, force: true })
-  await mkdir(join(pdfjsVendor, 'standard_fonts'), { recursive: true })
-  for (const file of ['pdf.mjs', 'pdf.worker.mjs', 'pdf.renderer.mjs']) {
-    await cp(join(pdfjsDist, 'build', file), join(pdfjsVendor, file))
-  }
-  await cp(join(pdfjsDist, 'LICENSE'), join(pdfjsVendor, 'LICENSE'))
-  for (const file of await readdir(join(pdfjsDist, 'standard_fonts'))) {
-    await cp(join(pdfjsDist, 'standard_fonts', file), join(pdfjsVendor, 'standard_fonts', file))
-  }
+/** Writes `data` to `path` unless it already holds exactly that; answers whether it wrote. */
+async function writeIfChanged(path, data) {
+  const bytes = typeof data === 'string' ? Buffer.from(data) : Buffer.from(data)
+  const current = await readFile(path).catch(() => null)
+  if (current && current.equals(bytes)) return false
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, bytes)
+  return true
 }
 
-async function copyKatex() {
-  await rm(vendor, { recursive: true, force: true })
-  await mkdir(join(vendor, 'fonts'), { recursive: true })
-  await cp(join(katexDist, 'katex.min.css'), join(vendor, 'katex.min.css'))
-  await cp(join(root, 'node_modules/katex/LICENSE'), join(vendor, 'LICENSE'))
-  for (const file of await readdir(join(katexDist, 'fonts'))) {
-    // Every browser Orca runs in takes woff2, the first source in KaTeX's @font-face rules.
-    if (file.endsWith('.woff2')) await cp(join(katexDist, 'fonts', file), join(vendor, 'fonts', file))
+/** Makes `dest` hold exactly `files` (name → source path): copies what differs, removes the rest. */
+async function mirror(dest, files) {
+  let changed = 0
+  for (const [name, source] of Object.entries(files)) {
+    if (await writeIfChanged(join(dest, name), await readFile(source))) changed++
   }
+  const existing = await readdir(dest, { recursive: true, withFileTypes: true }).catch(() => [])
+  for (const entry of existing) {
+    if (!entry.isFile()) continue
+    const name = relative(dest, join(entry.parentPath ?? entry.path, entry.name))
+    if (!(name in files)) {
+      await rm(join(dest, name))
+      changed++
+    }
+  }
+  return changed
+}
+
+async function vendorFiles() {
+  const katex = join(root, 'node_modules/katex')
+  const pdfjs = join(root, 'node_modules/pdfjs-dist')
+  const katexFiles = {
+    'katex.min.css': join(katex, 'dist/katex.min.css'),
+    LICENSE: join(katex, 'LICENSE')
+  }
+  // Every browser Orca runs in takes woff2, the first source in KaTeX's @font-face rules.
+  for (const file of await readdir(join(katex, 'dist/fonts'))) {
+    if (file.endsWith('.woff2')) katexFiles[`fonts/${file}`] = join(katex, 'dist/fonts', file)
+  }
+  // pdf.js draws PDF figures; the editor loads it on first use, so it ships beside app.js.
+  const pdfjsFiles = { LICENSE: join(pdfjs, 'LICENSE') }
+  for (const file of ['pdf.mjs', 'pdf.worker.mjs', 'pdf.renderer.mjs']) pdfjsFiles[file] = join(pdfjs, 'build', file)
+  for (const file of await readdir(join(pdfjs, 'standard_fonts'))) {
+    pdfjsFiles[`standard_fonts/${file}`] = join(pdfjs, 'standard_fonts', file)
+  }
+  return { katexFiles, pdfjsFiles }
 }
 
 const options = {
@@ -50,14 +73,32 @@ const options = {
   charset: 'utf8',
   legalComments: 'eof',
   banner: { js: '// Rich TeX Editor: generated from src/ by scripts/build.mjs. Edit the sources, not this file.' },
-  logLevel: 'info'
+  logLevel: 'warning',
+  write: false,
+  plugins: [
+    {
+      name: 'write-if-changed',
+      setup(build) {
+        build.onEnd(async (result) => {
+          for (const file of result.outputFiles ?? []) {
+            const wrote = await writeIfChanged(file.path, file.contents)
+            console.log(`${wrote ? 'wrote' : 'unchanged'} ${relative(root, file.path)} (${(file.contents.length / 1024).toFixed(0)} KB)`)
+          }
+        })
+      }
+    }
+  ]
 }
 
-await copyKatex()
-await copyPdfjs()
+const { katexFiles, pdfjsFiles } = await vendorFiles()
+const vendorChanges =
+  (await mirror(join(root, 'editor/vendor/katex'), katexFiles)) + (await mirror(join(root, 'editor/vendor/pdfjs'), pdfjsFiles))
+console.log(vendorChanges ? `vendor: ${vendorChanges} files updated` : 'vendor: unchanged')
+
+const ctx = await context(options)
 if (process.argv.includes('--watch')) {
-  const ctx = await context(options)
   await ctx.watch()
 } else {
-  await build(options)
+  await ctx.rebuild()
+  await ctx.dispose()
 }

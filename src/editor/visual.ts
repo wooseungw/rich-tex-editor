@@ -1,6 +1,7 @@
 import {
   type EditorState,
   type Extension,
+  Facet,
   findClusterBreak,
   Prec,
   type Range,
@@ -17,6 +18,7 @@ import { renderFragment } from './fragment'
 import { imageLoader, refreshImages } from './image-loader'
 import { renderMath } from './math-render'
 import {
+  BoundaryWidget,
   EnvTitleWidget,
   ImageWidget,
   LogoWidget,
@@ -52,6 +54,7 @@ const codeLine = Decoration.line({ class: 'cm-rt-code-line' })
 const foldedLine = Decoration.line({ class: 'cm-rt-folded' })
 const captionLine = Decoration.line({ class: 'cm-rt-caption-line' })
 const quietSource = Decoration.mark({ class: 'cm-rt-quiet' })
+const boundaryLine = Decoration.line({ class: 'cm-rt-boundary-line' })
 const indentLines = Array.from({ length: 8 }, (_, depth) =>
   Decoration.line({ class: `cm-rt-indent cm-rt-indent-${depth}` })
 )
@@ -191,6 +194,14 @@ const focusField = StateField.define<boolean>({
 const focusTracker = EditorView.focusChangeEffect.of((state, focusing) =>
   focusing && !state.field(focusField, false) ? setFocus.of(true) : null
 )
+
+/**
+ * Whether environments show where they begin and end (`itemize ───`, `end itemize ───`) or fold
+ * those lines to a thin gap. A view option, set from the toolbar.
+ */
+export const boundaryMarkers = Facet.define<boolean, boolean>({
+  combine: (values) => values.some(Boolean)
+})
 
 /** A line-sized piece the visual mode may fold away, or hide inline when its line has text. */
 interface Foldable {
@@ -379,7 +390,7 @@ function decorate(
       return c.to
     }
     case 'env':
-      decorateEnvironment(c, doc, reveal, sink, foldables, blockNames)
+      decorateEnvironment(c, doc, reveal, sink, foldables, blockNames, state.facet(boundaryMarkers))
       return -1
     case 'layout':
       foldables.push({ from: c.from, to: c.to })
@@ -519,7 +530,8 @@ function decorateEnvironment(
   reveal: Reveal,
   sink: Sink,
   foldables: Foldable[],
-  blockNames: ReadonlySet<string>
+  blockNames: ReadonlySet<string>,
+  markers: boolean
 ): void {
   const open = c.begin ? 7 : 5
   const alone = ownsLines(doc, c.from, c.to)
@@ -549,7 +561,20 @@ function decorateEnvironment(
     return
   }
   if (FOLDED_ENVIRONMENTS.has(c.name) || (!c.begin && blockNames.has(c.name))) {
-    foldables.push({ from: c.from, to: c.to })
+    if (!markers) {
+      foldables.push({ from: c.from, to: c.to })
+      return
+    }
+    // A thin labelled rule where the environment begins or ends; the line opens as source when
+    // the cursor arrives on it, like a folded line.
+    if (!alone) {
+      sink.add(quietSource.range(c.from, c.to))
+      return
+    }
+    if (reveal.within(line.from, line.to)) return
+    const label = c.option ? `${c.name} [${c.option}]` : c.name
+    sink.add(boundaryLine.range(line.from))
+    sink.add(Decoration.replace({ widget: new BoundaryWidget(label, c.begin, c.from - line.from + open) }).range(line.from, line.to))
     return
   }
   // Any other environment shows its own source, quietly.
@@ -559,7 +584,10 @@ function decorateEnvironment(
 const visualField = StateField.define<Built>({
   create: buildDecorations,
   update: (value, tr) =>
-    tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setFocus) || e.is(refreshImages))
+    tr.docChanged ||
+    tr.selection ||
+    tr.effects.some((e) => e.is(setFocus) || e.is(refreshImages)) ||
+    tr.startState.facet(boundaryMarkers) !== tr.state.facet(boundaryMarkers)
       ? buildDecorations(tr.state)
       : value,
   provide: (field) => [

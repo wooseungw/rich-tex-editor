@@ -20,7 +20,7 @@ import { analysisField } from './analysis'
 import { insertDisplayMath, insertInlineMath, insertLink, toggleFormat } from './commands'
 import { latexCompletionSources } from './completions'
 import { crlfOf, outsideChanges } from './outside'
-import { focusTracking, visualMode } from './visual'
+import { boundaryMarkers, focusTracking, visualMode } from './visual'
 
 export type Mode = 'visual' | 'split'
 
@@ -51,6 +51,7 @@ const formattingKeymap = keymap.of([
 ])
 
 const modes = new Compartment()
+const boundaries = new Compartment()
 const editable = new Compartment()
 
 function modeExtensions(mode: Mode): Extension {
@@ -68,6 +69,8 @@ export interface EditorOptions {
   text: string
   readOnly: boolean
   mode: Mode
+  /** Show where environments begin and end in the visual mode. */
+  boundaries: boolean
   /** Called with the whole text after each local change. */
   onChange: (text: string) => void
   /** Called after any update that may change what the toolbar shows. */
@@ -126,6 +129,7 @@ export function createEditor(options: EditorOptions): EditorView {
           indentWithTab
         ]),
         modes.of(modeExtensions(options.mode)),
+        boundaries.of(boundaryMarkers.of(options.boundaries)),
         editable.of(editableExtensions(options.readOnly)),
         EditorView.updateListener.of((update) => {
           const local = update.docChanged && !update.transactions.some((tr) => tr.annotation(fromOutside))
@@ -139,6 +143,10 @@ export function createEditor(options: EditorOptions): EditorView {
 
 export function setMode(view: EditorView, mode: Mode): void {
   view.dispatch({ effects: modes.reconfigure(modeExtensions(mode)) })
+}
+
+export function setBoundaries(view: EditorView, on: boolean): void {
+  view.dispatch({ effects: boundaries.reconfigure(boundaryMarkers.of(on)) })
 }
 
 export function setReadOnly(view: EditorView, readOnly: boolean): void {

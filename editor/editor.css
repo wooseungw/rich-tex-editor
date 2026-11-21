@@ -993,7 +993,10 @@ html.dark .cm-rt-image img {
 .cm-rt-visual .cm-rt-quiet {
   color: var(--orca-muted-foreground);
   font-family: var(--rt-mono-font);
-  font-size: 0.72em;
+  /* A fixed size, so a \label in a heading stays as small as one in text. */
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
   opacity: 0.75;
 }
 .cm-rt-visual .cm-rt-quiet [class^="tok-"],
@@ -1001,4 +1004,33 @@ html.dark .cm-rt-image img {
   color: inherit;
   font-size: 1em;
   font-style: normal;
+}
+
+/* Where environments begin and end (the { } toolbar option) */
+
+.rt-editor-pane .cm-rt-visual .cm-line.cm-rt-boundary-line {
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 11px;
+  line-height: 20px;
+}
+.cm-rt-boundary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  color: var(--orca-muted-foreground);
+  font: 11px/20px var(--rt-mono-font);
+  letter-spacing: 0.02em;
+  opacity: 0.7;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.cm-rt-boundary::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed color-mix(in srgb, var(--orca-muted-foreground) 45%, transparent);
+}
+.cm-rt-boundary:hover {
+  opacity: 1;
 }

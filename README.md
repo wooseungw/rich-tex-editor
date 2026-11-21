@@ -7,8 +7,8 @@ views you can switch between at any time. The file stays plain LaTeX on disk.
   becomes a numbered heading, `\textbf{…}` shows as bold, math is typeset with KaTeX, `\ref` and
   `\cite` resolve to numbers, lists get bullets, tables and images are drawn, theorems get their
   numbered titles, footnotes shrink to their mark (hover to read them), the preamble folds to a
-  one-line summary, and lines that only arrange the page (`\begin{itemize}`, `\centering`) fold
-  away. Put the cursor on something, or click it, to see and edit its source. Display math shows a
+  one-line summary, environments show a thin labelled rule where they begin and end (the `{ }`
+  toolbar button hides them), and lines that only arrange the page (`\centering`) fold away. Put the cursor on something, or click it, to see and edit its source. Display math shows a
   live rendering under the source while you edit it.
 - **Split**: highlighted source with line numbers beside a live preview of the whole document:
   title block, numbered sections, equations, figures, tables, theorems, footnotes and the

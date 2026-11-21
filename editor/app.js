@@ -42781,6 +42781,25 @@ var ImageWidget = class extends RevealWidget {
     return this.block ? 240 : -1;
   }
 };
+var BoundaryWidget = class extends RevealWidget {
+  constructor(label, begin, reveal) {
+    super(reveal);
+    this.label = label;
+    this.begin = begin;
+  }
+  label;
+  begin;
+  eq(other) {
+    return other.label === this.label && other.begin === this.begin && other.reveal === this.reveal;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = `cm-rt-boundary ${this.begin ? "cm-rt-boundary-begin" : "cm-rt-boundary-end"}`;
+    el.textContent = this.begin ? this.label : `end ${this.label.replace(/ \[.*\]$/, "")}`;
+    el.title = this.begin ? `\\begin{${this.label.replace(/ \[.*\]$/, "")}}` : `\\end{${this.label}}`;
+    return this.mark(el);
+  }
+};
 
 // src/editor/visual.ts
 var hide = Decoration.replace({});
@@ -42793,6 +42812,7 @@ var codeLine = Decoration.line({ class: "cm-rt-code-line" });
 var foldedLine = Decoration.line({ class: "cm-rt-folded" });
 var captionLine = Decoration.line({ class: "cm-rt-caption-line" });
 var quietSource = Decoration.mark({ class: "cm-rt-quiet" });
+var boundaryLine = Decoration.line({ class: "cm-rt-boundary-line" });
 var indentLines = Array.from(
   { length: 8 },
   (_, depth) => Decoration.line({ class: `cm-rt-indent cm-rt-indent-${depth}` })
@@ -42917,6 +42937,9 @@ var focusField = StateField.define({
 var focusTracker = EditorView.focusChangeEffect.of(
   (state, focusing) => focusing && !state.field(focusField, false) ? setFocus.of(true) : null
 );
+var boundaryMarkers = Facet.define({
+  combine: (values) => values.some(Boolean)
+});
 function revealFor(state) {
   if (!state.field(focusField, false)) return { inside: () => false, within: () => false };
   const ranges = state.selection.ranges;
@@ -43058,7 +43081,7 @@ function decorate(c, a, state, reveal, sink, foldables, blockNames) {
       return c.to;
     }
     case "env":
-      decorateEnvironment(c, doc2, reveal, sink, foldables, blockNames);
+      decorateEnvironment(c, doc2, reveal, sink, foldables, blockNames, state.facet(boundaryMarkers));
       return -1;
     case "layout":
       foldables.push({ from: c.from, to: c.to });
@@ -43183,7 +43206,7 @@ function decorateFormat(c, state, reveal, sink) {
   sink.replace(hide, c.argTo, c.to);
   return -1;
 }
-function decorateEnvironment(c, doc2, reveal, sink, foldables, blockNames) {
+function decorateEnvironment(c, doc2, reveal, sink, foldables, blockNames, markers) {
   const open2 = c.begin ? 7 : 5;
   const alone = ownsLines(doc2, c.from, c.to);
   const line = doc2.lineAt(c.from);
@@ -43211,14 +43234,25 @@ function decorateEnvironment(c, doc2, reveal, sink, foldables, blockNames) {
     return;
   }
   if (FOLDED_ENVIRONMENTS.has(c.name) || !c.begin && blockNames.has(c.name)) {
-    foldables.push({ from: c.from, to: c.to });
+    if (!markers) {
+      foldables.push({ from: c.from, to: c.to });
+      return;
+    }
+    if (!alone) {
+      sink.add(quietSource.range(c.from, c.to));
+      return;
+    }
+    if (reveal.within(line.from, line.to)) return;
+    const label = c.option ? `${c.name} [${c.option}]` : c.name;
+    sink.add(boundaryLine.range(line.from));
+    sink.add(Decoration.replace({ widget: new BoundaryWidget(label, c.begin, c.from - line.from + open2) }).range(line.from, line.to));
     return;
   }
   sink.add(quietSource.range(c.from, c.to));
 }
 var visualField = StateField.define({
   create: buildDecorations,
-  update: (value, tr) => tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setFocus) || e.is(refreshImages)) ? buildDecorations(tr.state) : value,
+  update: (value, tr) => tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setFocus) || e.is(refreshImages)) || tr.startState.facet(boundaryMarkers) !== tr.state.facet(boundaryMarkers) ? buildDecorations(tr.state) : value,
   provide: (field) => [
     EditorView.decorations.from(field, (built) => built.decorations),
     EditorView.atomicRanges.of((view) => view.state.field(field).atomic)
@@ -43453,6 +43487,7 @@ var formattingKeymap = keymap.of([
   { key: "Mod-k", run: insertLink }
 ]);
 var modes = new Compartment();
+var boundaries = new Compartment();
 var editable2 = new Compartment();
 function modeExtensions(mode) {
   return mode === "visual" ? visualMode() : [lineNumbers(), highlightActiveLineGutter(), EditorView.editorAttributes.of({ class: "cm-rt-source" })];
@@ -43507,6 +43542,7 @@ function createEditor(options) {
           indentWithTab
         ]),
         modes.of(modeExtensions(options.mode)),
+        boundaries.of(boundaryMarkers.of(options.boundaries)),
         editable2.of(editableExtensions(options.readOnly)),
         EditorView.updateListener.of((update) => {
           const local = update.docChanged && !update.transactions.some((tr) => tr.annotation(fromOutside));
@@ -43519,6 +43555,9 @@ function createEditor(options) {
 }
 function setMode(view, mode) {
   view.dispatch({ effects: modes.reconfigure(modeExtensions(mode)) });
+}
+function setBoundaries(view, on) {
+  view.dispatch({ effects: boundaries.reconfigure(boundaryMarkers.of(on)) });
 }
 function setReadOnly(view, readOnly2) {
   view.dispatch({ effects: editable2.reconfigure(editableExtensions(readOnly2)) });
@@ -44001,6 +44040,7 @@ var paths = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  braces: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>',
   footnote: '<path d="M4 6h10"/><path d="M4 12h16"/><path d="M4 18h9"/><path d="M18 3v6"/>'
 };
 function icon(name2) {
@@ -44192,6 +44232,11 @@ var Toolbar = class {
       const view = this.host.getView();
       openSearchPanel(view);
     });
+    this.boundaryBtn = button("", "Show where environments begin and end", "braces");
+    this.boundaryBtn.addEventListener("click", () => {
+      this.host.setBoundaries(!this.host.getBoundaries());
+      this.update(this.host.getView());
+    });
     const exportBtn = button("", "Export as HTML", "download");
     exportBtn.addEventListener("click", () => this.host.exportHtml());
     this.words = document.createElement("span");
@@ -44219,7 +44264,7 @@ var Toolbar = class {
       group(insert2),
       spacer,
       this.words,
-      group(find2, exportBtn),
+      group(this.boundaryBtn, find2, exportBtn),
       this.symbols
     );
   }
@@ -44233,6 +44278,7 @@ var Toolbar = class {
   undoBtn;
   redoBtn;
   symbols;
+  boundaryBtn;
   readOnly = false;
   action(el, run) {
     el.addEventListener("click", () => {
@@ -44314,6 +44360,10 @@ var Toolbar = class {
   }
   update(view) {
     const mode = this.host.getMode();
+    const on = this.host.getBoundaries();
+    this.boundaryBtn.classList.toggle("rt-active", on);
+    this.boundaryBtn.setAttribute("aria-pressed", String(on));
+    this.boundaryBtn.hidden = mode !== "visual";
     for (const [m, b] of this.modeButtons) {
       b.setAttribute("aria-checked", String(m === mode));
       b.classList.toggle("rt-active", m === mode);
@@ -44321,9 +44371,9 @@ var Toolbar = class {
     const { state } = view;
     const main3 = state.selection.main;
     for (const f of this.formats) {
-      const on = formatAt(state, f.cmd, main3.from, main3.to) !== null;
-      f.el.setAttribute("aria-pressed", String(on));
-      f.el.classList.toggle("rt-active", on);
+      const on2 = formatAt(state, f.cmd, main3.from, main3.to) !== null;
+      f.el.setAttribute("aria-pressed", String(on2));
+      f.el.classList.toggle("rt-active", on2);
     }
     const heading2 = headingAt(state, main3.head);
     const value = heading2?.cmd ?? "";
@@ -44371,6 +44421,7 @@ async function main2() {
   void followTypography();
   const doc2 = await start();
   let mode = readPref("mode") === "split" ? "split" : "visual";
+  let boundaries2 = readPref("boundaries") !== "off";
   const main3 = document.createElement("div");
   main3.className = "rt-main";
   const editorPane = document.createElement("div");
@@ -44452,7 +44503,13 @@ async function main2() {
       view.focus();
     },
     exportHtml: () => void exportHtml(),
-    insertImage: () => pickImage()
+    insertImage: () => pickImage(),
+    getBoundaries: () => boundaries2,
+    setBoundaries: (on) => {
+      boundaries2 = on;
+      writePref("boundaries", on ? "on" : "off");
+      setBoundaries(view, on);
+    }
   });
   const waiting = /* @__PURE__ */ new Set();
   const trackWaiting = EditorView.updateListener.of((update) => {
@@ -44556,6 +44613,7 @@ ${figures}`)(view, null, line.to, line.to);
     text: doc2.value,
     readOnly: doc2.readOnly,
     mode,
+    boundaries: boundaries2,
     onChange: (text2) => {
       doc2.change(text2);
       schedule();

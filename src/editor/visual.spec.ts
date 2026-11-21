@@ -6,6 +6,7 @@ import { analysisField } from './analysis'
 import { fillTemplate } from './commands'
 import {
   atomicRangesFor,
+  boundaryMarkers,
   backspaceInPlace,
   deleteInPlace,
   enterInPlace,
@@ -13,7 +14,7 @@ import {
   focusTracking,
   visualDecorationsFor
 } from './visual'
-import { EnvTitleWidget, MathWidget, PreambleWidget, TableWidget, TextWidget } from './widgets'
+import { BoundaryWidget, EnvTitleWidget, MathWidget, PreambleWidget, TableWidget, TextWidget } from './widgets'
 
 interface Seen {
   from: number
@@ -252,4 +253,19 @@ test('wrapping a selection keeps its dollars, backslashes and indentation exactl
   const { text, field } = fillTemplate('\\begin{equation}\n  #{selection}\n  \\label{eq:#{key}}\n\\end{equation}', 'x')
   assert.ok(field)
   assert.equal(text.slice(field[0], field[1]), 'key')
+})
+
+test('with boundary markers on, environments show where they begin and end', () => {
+  const doc = '\\begin{itemize}\n\\item one\n\\end{itemize}\n\\begin{figure}[h]\n\\centering\n\\end{figure}\nAfter'
+  const state = EditorState.create({ doc, extensions: [analysisField, focusTracking, boundaryMarkers.of(true)] })
+  const markers: string[] = []
+  let folded = 0
+  visualDecorationsFor(state).between(0, doc.length, (_from, _to, value) => {
+    const spec = value.spec as { widget?: unknown; class?: string }
+    if (spec.widget instanceof BoundaryWidget) markers.push(`${spec.widget.begin ? 'begin' : 'end'} ${spec.widget.label}`)
+    if (spec.class === 'cm-rt-folded') folded++
+  })
+  assert.deepEqual(markers, ['begin itemize', 'end itemize', 'begin figure [h]', 'end figure'])
+  // \centering is layout, not an environment: it still folds.
+  assert.equal(folded, 1)
 })

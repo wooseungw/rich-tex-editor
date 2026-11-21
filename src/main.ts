@@ -3,7 +3,7 @@ import { EditorView } from '@codemirror/view'
 import { analysisField } from './editor/analysis'
 import { imageLoader, refreshImages } from './editor/image-loader'
 import { renderMathOrThrow } from './editor/math-render'
-import { createEditor, type Mode, replaceText, setMode, setReadOnly } from './editor/setup'
+import { createEditor, type Mode, replaceText, setBoundaries, setMode, setReadOnly } from './editor/setup'
 import { ImageError, imageName, ImageStore, isImageFile } from './images'
 import { renderPreview } from './latex/preview'
 import { scan } from './latex/scan'
@@ -56,6 +56,8 @@ async function main(): Promise<void> {
 
   const doc = await start()
   let mode: Mode = readPref('mode') === 'split' ? 'split' : 'visual'
+  // Environment begin/end markers are on unless the person turned them off.
+  let boundaries = readPref('boundaries') !== 'off'
 
   const main = document.createElement('div')
   main.className = 'rt-main'
@@ -151,7 +153,13 @@ async function main(): Promise<void> {
       view.focus()
     },
     exportHtml: () => void exportHtml(),
-    insertImage: () => pickImage()
+    insertImage: () => pickImage(),
+    getBoundaries: () => boundaries,
+    setBoundaries: (on) => {
+      boundaries = on
+      writePref('boundaries', on ? 'on' : 'off')
+      setBoundaries(view, on)
+    }
   })
 
   /** Positions waiting for an upload; they move with edits made while it runs. */
@@ -265,6 +273,7 @@ async function main(): Promise<void> {
     text: doc.value,
     readOnly: doc.readOnly,
     mode,
+    boundaries,
     onChange: (text) => {
       doc.change(text)
       schedule()
