@@ -1,8 +1,8 @@
 import { Facet, StateEffect } from '@codemirror/state'
 
 export interface LoadedImage {
-  /** A `blob:` URL the frame can show. */
-  url: string
+  /** A `blob:` URL the frame can show; null for a file found but not drawn (a PDF). */
+  url: string | null
   /** Path relative to the .tex folder, as found on disk. */
   path: string
   mime: string

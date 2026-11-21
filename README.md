@@ -17,8 +17,9 @@ views you can switch between at any time. The file stays plain LaTeX on disk.
 **Images**: drag image files onto the editor, paste a screenshot, or use Insert → Image…. Each one
 is saved into a `figures/` folder next to the `.tex` file (never overwriting a file) and a
 `figure` with a caption to fill in is inserted. Images that `\includegraphics` references are shown
-in both views, including extension-less names and `\graphicspath` folders; PDF figures are drawn
-from their first page with pdf.js. PNG, JPEG, GIF, WebP, SVG and PDF, up to 25 MB each. The
+in both views, including extension-less names and `\graphicspath` folders: PNG, JPEG, GIF, WebP
+and SVG, up to 25 MB each. PDF figures can be added and are found, but show as a card with their
+path rather than drawn (a PDF renderer would more than double the plugin's size). The
 editor finds the `.tex` file on disk by its contents, so if the tab already had unsaved changes
 when it opened, save once before adding an image; it never guesses another folder.
 
@@ -92,7 +93,6 @@ as they are. The sources are in `src/`:
 | `src/main.ts`             | Starts the editor, the view switch, scroll sync, images, export |
 | `src/protocol.ts`         | The requests between the editor and the worker                 |
 | `src/images.ts`           | Locates the file, loads images, saves dropped and pasted ones  |
-| `src/pdf-render.ts`       | Draws PDF figures with pdf.js, loaded on first use             |
 | `worker/`                 | The Node worker: finds the .tex file, saves and reads images   |
 | `src/sync.ts`, `merge.ts` | Orca document session and the three-way line merge             |
 | `src/latex/scan.ts`       | Finds math, headings, formatting, references in the source     |
@@ -103,8 +103,7 @@ as they are. The sources are in `src/`:
 | `src/ui/`                 | Toolbar and the preview pane                                   |
 
 KaTeX is © Khan Academy and contributors (MIT); its stylesheet and fonts ship in
-`editor/vendor/katex/`. pdf.js is © Mozilla and contributors (Apache-2.0) and ships in
-`editor/vendor/pdfjs/`. CodeMirror is © Marijn Haverbeke and contributors (MIT).
+`editor/vendor/katex/`. CodeMirror is © Marijn Haverbeke and contributors (MIT).
 
 ## License
 

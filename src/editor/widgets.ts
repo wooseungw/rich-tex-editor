@@ -284,6 +284,14 @@ export class ImageWidget extends RevealWidget {
         name.textContent = `${this.file} (not found)`
         return
       }
+      el.classList.remove('cm-rt-image-loading')
+      if (image.url === null) {
+        // Found, but not a format the editor draws (a PDF): show where it is.
+        el.classList.add('cm-rt-image-file')
+        el.title = `\\includegraphics{${this.file}}: PDF figures are not drawn in the editor`
+        name.textContent = image.path
+        return
+      }
       const img = document.createElement('img')
       img.alt = this.file
       img.draggable = false
@@ -300,7 +308,6 @@ export class ImageWidget extends RevealWidget {
         { once: true }
       )
       img.src = image.url
-      el.classList.remove('cm-rt-image-loading')
       name.remove()
       el.append(img)
     }

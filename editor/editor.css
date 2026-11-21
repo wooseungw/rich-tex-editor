@@ -977,6 +977,10 @@ html.dark .cm-rt-image img {
 .cm-rt-image-loading .cm-rt-image-name {
   opacity: 0.6;
 }
+.cm-rt-image-file .cm-rt-image-name::before {
+  content: "PDF  ";
+  font-weight: 600;
+}
 .cm-rt-image-missing .cm-rt-image-name {
   border-color: color-mix(in srgb, var(--orca-destructive) 45%, transparent);
 }

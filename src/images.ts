@@ -1,6 +1,5 @@
 import type { LoadedImage, ImageLoader } from './editor/image-loader'
 import { IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, type TexLocation, UPLOAD_CHUNK_BYTES } from './protocol'
-import { renderPdfFirstPage } from './pdf-render'
 import { sha256Hex } from './sha256'
 
 /**
@@ -168,24 +167,12 @@ export class ImageStore implements ImageLoader {
       if (!answer.found) return null
       mime = answer.mime
       path = answer.path
+      // PDF figures are not drawn (a PDF renderer would double the plugin's size): knowing the
+      // file is there is enough, so the rest of it is not read.
+      if (mime === 'application/pdf') return { url: null, path, mime }
       chunks.push(fromBase64(answer.data))
       if (answer.next === null) break
       offset = answer.next
-    }
-    if (mime === 'application/pdf') {
-      const total = chunks.reduce((n, c) => n + c.length, 0)
-      const bytes = new Uint8Array(total)
-      let at = 0
-      for (const chunk of chunks) {
-        bytes.set(chunk, at)
-        at += chunk.length
-      }
-      try {
-        return { url: URL.createObjectURL(await renderPdfFirstPage(bytes)), path, mime: 'image/png' }
-      } catch (err) {
-        console.warn(`Rich TeX Editor: could not draw ${path}`, err)
-        return null
-      }
     }
     const url = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: mime }))
     return { url, path, mime }
@@ -211,8 +198,9 @@ export class ImageStore implements ImageLoader {
         onProgress?.(Math.min(1, (at + UPLOAD_CHUNK_BYTES) / bytes.length))
       }
       const { path } = await orca.plugin.request('image.commit', { uploadId }, { timeoutMs: 30000 })
-      // Show it at once, without reading it back (a PDF is drawn when it is first shown).
-      if (file.type !== 'application/pdf') this.images.set(path, { url: URL.createObjectURL(file), path, mime: file.type })
+      // Show it at once, without reading it back.
+      const url = file.type === 'application/pdf' ? null : URL.createObjectURL(file)
+      this.images.set(path, { url, path, mime: file.type })
       return path
     } catch (err) {
       throw new ImageError(`Could not save ${name}`, codeOf(err))

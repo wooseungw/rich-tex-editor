@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "rich-tex-editor",
   "name": "Rich TeX Editor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A rich LaTeX editor for .tex files: a visual mode that renders math, headings, tables and images as you type, a split mode with a live preview, and drag-and-drop images.",
   "author": {
     "name": "Seungwoo Woo",
@@ -23,8 +23,8 @@
     },
     {
       "path": "assets/screenshot-figures.png",
-      "alt": "Visual mode with a numbered theorem, an aligned equation, a rendered table and a PDF figure drawn in place.",
-      "caption": "Tables, theorems and figures (PDF included) are drawn in place; drop an image to add one."
+      "alt": "Visual mode with a numbered theorem, an aligned equation, a rendered table and a figure drawn in place.",
+      "caption": "Tables, theorems and figures are drawn in place; drop an image to add one."
     },
     {
       "path": "assets/screenshot-split-dark.png",

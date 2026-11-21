@@ -110,14 +110,14 @@ async function main(): Promise<void> {
     for (const box of preview.content.querySelectorAll<HTMLElement>('.rt-graphic[data-file]')) {
       const file = box.dataset.file ?? ''
       if (!file) continue
+      // A PDF (found, no url) keeps the placeholder that names it.
       const cached = images.cached(file)
-      if (cached) {
-        place(box, file, cached.url)
+      if (cached !== undefined) {
+        if (cached?.url) place(box, file, cached.url)
         continue
       }
-      if (cached === null) continue
       void images.load(file).then((image) => {
-        if (image && box.isConnected) place(box, file, image.url)
+        if (image?.url && box.isConnected) place(box, file, image.url)
       })
     }
   }
