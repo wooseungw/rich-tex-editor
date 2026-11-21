@@ -43602,7 +43602,10 @@ async function renderPdfFirstPage(bytes, maxWidth = 1400) {
     data: bytes.slice(),
     useWasm: false,
     disableWorkerRendering: true,
-    standardFontDataUrl: vendor("standard_fonts/"),
+    // pdf.js's standard font files (.pfb, .ttf) are not shipped: Orca's plugin directory lists
+    // no TTF or other binary fonts. A font the PDF does not embed is drawn with a system font
+    // instead; TeX, TikZ and matplotlib embed theirs.
+    useSystemFonts: true,
     verbosity: 0
   });
   try {

@@ -25,7 +25,10 @@ export async function renderPdfFirstPage(bytes: Uint8Array, maxWidth = 1400): Pr
     data: bytes.slice(),
     useWasm: false,
     disableWorkerRendering: true,
-    standardFontDataUrl: vendor('standard_fonts/'),
+    // pdf.js's standard font files (.pfb, .ttf) are not shipped: Orca's plugin directory lists
+    // no TTF or other binary fonts. A font the PDF does not embed is drawn with a system font
+    // instead; TeX, TikZ and matplotlib embed theirs.
+    useSystemFonts: true,
     verbosity: 0
   } as Parameters<typeof getDocument>[0])
   try {

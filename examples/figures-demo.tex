@@ -13,13 +13,15 @@ A PNG found through \verb|\graphicspath| and without an extension:
   \caption{A raster figure.}\label{fig:png}
 \end{figure}
 
-A PDF figure, drawn from its first page:
+A figure referenced by its path:
 
+% PDF figures are drawn from their first page. To try one, compile figures/descent.tex with
+% pdflatex and change the path below to figures/descent.pdf.
 \begin{figure}[h]
   \centering
-  \includegraphics[width=0.6\linewidth]{figures/descent.pdf}
-  \caption{A vector figure made with TikZ.}\label{fig:pdf}
+  \includegraphics[width=0.6\linewidth]{figures/descent.png}
+  \caption{A figure made with TikZ.}\label{fig:tikz}
 \end{figure}
 
-Figures~\ref{fig:png} and~\ref{fig:pdf}.
+Figures~\ref{fig:png} and~\ref{fig:tikz}.
 \end{document}

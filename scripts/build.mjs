@@ -37,6 +37,11 @@ async function mirror(dest, files) {
       changed++
     }
   }
+  // Drop folders the removals emptied, deepest first.
+  const folders = existing.filter((entry) => entry.isDirectory()).map((entry) => join(entry.parentPath ?? entry.path, entry.name))
+  for (const folder of folders.sort((a, b) => b.length - a.length)) {
+    if ((await readdir(folder)).length === 0) await rm(folder, { recursive: true })
+  }
   return changed
 }
 
@@ -52,11 +57,10 @@ async function vendorFiles() {
     if (file.endsWith('.woff2')) katexFiles[`fonts/${file}`] = join(katex, 'dist/fonts', file)
   }
   // pdf.js draws PDF figures; the editor loads it on first use, so it ships beside app.js.
+  // Its standard_fonts/ (.pfb, .ttf) stay out: Orca's plugin directory refuses binary fonts
+  // other than WOFF and WOFF2, and src/pdf-render.ts draws unembedded fonts with system ones.
   const pdfjsFiles = { LICENSE: join(pdfjs, 'LICENSE') }
   for (const file of ['pdf.mjs', 'pdf.worker.mjs', 'pdf.renderer.mjs']) pdfjsFiles[file] = join(pdfjs, 'build', file)
-  for (const file of await readdir(join(pdfjs, 'standard_fonts'))) {
-    pdfjsFiles[`standard_fonts/${file}`] = join(pdfjs, 'standard_fonts', file)
-  }
   return { katexFiles, pdfjsFiles }
 }
 
