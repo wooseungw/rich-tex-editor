@@ -220,25 +220,50 @@ export default function activate(orca: OrcaWorkerApi) {
     return { path: [...current.segments, fileName].join('/') }
   })
 
-  orca.panels.handle('image.read', async (input) => {
-    const { location, ref, graphicsPath = [], offset } = fields(input)
+  /** The image a document's `ref` names, looked up as `image.read` and `image.stat` describe. */
+  async function lookUp(input: { location?: TexLocation | null; ref?: unknown; graphicsPath?: unknown }) {
+    const { location, ref, graphicsPath = [] } = input
     if (typeof ref !== 'string' || ref === '' || ref.includes('\0')) fail('invalid_params', 'ref must be a path')
     if (!Array.isArray(graphicsPath)) fail('invalid_params', 'graphicsPath must be a list')
-    if (!isCount(offset)) fail('invalid_params', 'offset must be a byte offset')
     const where = await place(location)
-    if (!where) return NOT_FOUND
+    if (!where) return null
     const folders = graphicsPath
       .filter((folder): folder is string => typeof folder === 'string' && !folder.includes('\0'))
       .slice(0, MAX_GRAPHICS_PATHS)
-    const image = await findImage(where.realRoot, where.texDir, ref, folders)
-    if (!image) return NOT_FOUND
-    const handle = await fs.open(image.file, 'r').catch(() => null)
-    if (!handle) return NOT_FOUND
+    return findImage(where.realRoot, where.texDir, ref, folders)
+  }
+
+  /** The image opened for reading, with what it is now; null when it cannot be read. `image.stat`
+   *  and `image.read` both go through it, so they agree on which files exist. */
+  async function open(file: string) {
+    const handle = await fs.open(file, 'r').catch(() => null)
+    if (!handle) return null
+    const stat = await handle.stat().catch(() => null)
+    if (stat?.isFile() && stat.size <= MAX_IMAGE_BYTES) return { handle, stat }
+    await handle.close()
+    return null
+  }
+
+  orca.panels.handle('image.stat', async (input) => {
+    const image = await lookUp(fields(input))
+    const opened = image && (await open(image.file))
+    if (!image || !opened) return NOT_FOUND
+    await opened.handle.close()
+    return { found: true as const, path: image.path, size: opened.stat.size, mtimeMs: opened.stat.mtimeMs }
+  })
+
+  orca.panels.handle('image.read', async (input) => {
+    const { offset, ...rest } = fields(input)
+    if (!isCount(offset)) fail('invalid_params', 'offset must be a byte offset')
+    const image = await lookUp(rest)
+    const opened = image && (await open(image.file))
+    if (!image || !opened) return NOT_FOUND
+    const { handle, stat } = opened
     try {
-      const stat = await handle.stat()
-      if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) return NOT_FOUND
       if (offset > stat.size) fail('invalid_params', `offset is past the end (${stat.size} bytes)`)
-      const buffer = Buffer.alloc(Math.min(READ_CHUNK_BYTES, stat.size - offset))
+      // The editor does not draw PDFs: knowing where one is is enough.
+      const wanted = image.mime === 'application/pdf' ? 0 : stat.size - offset
+      const buffer = Buffer.alloc(Math.min(READ_CHUNK_BYTES, wanted))
       const { bytesRead } = buffer.length > 0 ? await handle.read(buffer, 0, buffer.length, offset) : { bytesRead: 0 }
       const end = offset + bytesRead
       return {
@@ -248,7 +273,7 @@ export default function activate(orca: OrcaWorkerApi) {
         size: stat.size,
         mtimeMs: stat.mtimeMs,
         data: buffer.subarray(0, bytesRead).toString('base64'),
-        next: end < stat.size ? end : null
+        next: wanted > 0 && end < stat.size ? end : null
       }
     } finally {
       await handle.close()

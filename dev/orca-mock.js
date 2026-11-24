@@ -69,6 +69,12 @@
   const uploads = new Map()
   const saved = new Map()
   mock.uploads = saved
+  /** Simulates a file written on disk (a redrawn plot): `mock.writeImage('figures/a.png', bytes)`. */
+  mock.mtimes = new Map()
+  mock.writeImage = (rel, bytes) => {
+    saved.set(rel, bytes)
+    mock.mtimes.set(rel, Date.now())
+  }
   const toBase64 = (bytes) => {
     let s = ''
     for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
@@ -83,14 +89,31 @@
         for (const ext of exts) {
           const rel = (folder ? folder.replace(/\/?$/, '/') : '') + ref + ext
           let bytes = saved.get(rel)
+          let mtimeMs = mock.mtimes.get(rel) ?? 0
           if (!bytes) {
-            const res = await fetch(texDir + rel)
+            const res = await fetch(texDir + rel, { cache: 'no-store' })
             if (!res.ok) continue
             bytes = new Uint8Array(await res.arrayBuffer())
+            mtimeMs = Date.parse(res.headers.get('last-modified') ?? '') || 0
           }
           const mime = MIME[rel.split('.').pop().toLowerCase()]
           if (!mime) continue
-          return { found: true, path: rel, mime, size: bytes.length, mtimeMs: 0, data: toBase64(bytes.subarray(offset, offset + 700 * 1024)), next: offset + 700 * 1024 < bytes.length ? offset + 700 * 1024 : null }
+          return { found: true, path: rel, mime, size: bytes.length, mtimeMs, data: toBase64(bytes.subarray(offset, offset + 700 * 1024)), next: offset + 700 * 1024 < bytes.length ? offset + 700 * 1024 : null }
+        }
+      }
+      return { found: false }
+    },
+    'image.stat': async ({ ref, graphicsPath }) => {
+      const exts = /\.[a-z0-9]+$/i.test(ref) ? [''] : Object.keys(MIME).map((e) => '.' + e)
+      for (const folder of ['', ...graphicsPath]) {
+        for (const ext of exts) {
+          const rel = (folder ? folder.replace(/\/?$/, '/') : '') + ref + ext
+          if (!MIME[rel.split('.').pop().toLowerCase()]) continue
+          const bytes = saved.get(rel)
+          if (bytes) return { found: true, path: rel, size: bytes.length, mtimeMs: mock.mtimes.get(rel) ?? 0 }
+          const res = await fetch(texDir + rel, { method: 'HEAD', cache: 'no-store' })
+          if (!res.ok) continue
+          return { found: true, path: rel, size: Number(res.headers.get('content-length')), mtimeMs: Date.parse(res.headers.get('last-modified') ?? '') || 0 }
         }
       }
       return { found: false }

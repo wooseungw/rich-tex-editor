@@ -90,6 +90,10 @@ body {
   font: inherit;
   cursor: pointer;
 }
+/* `display` above would otherwise show a button the toolbar hides (the boundary toggle in split). */
+.rt-btn[hidden] {
+  display: none;
+}
 .rt-btn:hover {
   background: var(--orca-accent);
   color: var(--orca-accent-foreground);

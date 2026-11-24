@@ -25,6 +25,9 @@ function fromBase64(data: string): Uint8Array {
 }
 
 
+/** Changes whenever the file a ref resolves to is replaced, rewritten or swapped for another. */
+const stampOf = (found: { path: string; size: number; mtimeMs: number }) => `${found.path}|${found.size}|${found.mtimeMs}`
+
 /** An error the person should see, with the worker's code when there is one. */
 export class ImageError extends Error {
   constructor(
@@ -73,7 +76,10 @@ export class ImageStore implements ImageLoader {
   private locatedFor: string | null = null
   private locating: Promise<TexLocation | null> | null = null
   private readonly images = new Map<string, LoadedImage | null>()
+  /** What each loaded ref was on disk (`path|size|mtime`), to notice it being redrawn. */
+  private readonly stamps = new Map<string, string>()
   private readonly pending = new Map<string, Promise<LoadedImage | null>>()
+  private checking = false
   private graphicsPath: string[] = []
   private available = true
   generation = 0
@@ -92,7 +98,7 @@ export class ImageStore implements ImageLoader {
     if (paths.join('\u0000') === this.graphicsPath.join('\u0000')) return
     this.graphicsPath = paths
     // Folders changed: images not found before may resolve now.
-    for (const [ref, image] of this.images) if (image === null) this.images.delete(ref)
+    for (const [ref, image] of this.images) if (image === null) this.forget(ref)
     this.bump()
   }
 
@@ -128,6 +134,59 @@ export class ImageStore implements ImageLoader {
     return this.images.get(ref)
   }
 
+  /**
+   * Asks the disk again about every image looked up so far: one that was redrawn (a script or an
+   * agent wrote a new plot), appeared or went away is dropped and loads again. Nothing redraws
+   * unless something changed.
+   */
+  async revalidate(): Promise<void> {
+    if (!this.available || this.checking || this.images.size === 0) return
+    this.checking = true
+    let changed = false
+    try {
+      // The place images were loaded from; a check never starts a search for the file.
+      const location = this.location
+      for (const [ref, image] of [...this.images]) {
+        let answer
+        try {
+          answer = await orca.plugin.request('image.stat', { location, ref, graphicsPath: this.graphicsPath }, { timeoutMs: 15000 })
+        } catch (err) {
+          if (codeOf(err) === 'unavailable') {
+            this.available = false
+            return
+          }
+          continue
+        }
+        // A change made meanwhile (new folders, a reload) answers for itself.
+        if (this.images.get(ref) !== image) continue
+        const now = answer.found ? stampOf(answer) : null
+        // No stamp: saved from here (what is on disk is what it shows), or a plain miss. A miss
+        // with a stamp is a read that failed on that version of the file.
+        const known = this.stamps.get(ref)
+        if (known === undefined) {
+          if (image && now !== null) {
+            this.stamps.set(ref, now)
+            continue
+          }
+          if (!image && now === null) continue
+        } else if (now === known) continue
+        this.forget(ref)
+        changed = true
+      }
+    } finally {
+      this.checking = false
+      // Even when a later check failed, the images already dropped must load again.
+      if (changed) this.bump()
+    }
+  }
+
+  private forget(ref: string): void {
+    const image = this.images.get(ref)
+    this.images.delete(ref)
+    this.stamps.delete(ref)
+    if (image?.url) URL.revokeObjectURL(image.url)
+  }
+
   load(ref: string): Promise<LoadedImage | null> {
     const known = this.images.get(ref)
     if (known !== undefined) return Promise.resolve(known)
@@ -143,6 +202,9 @@ export class ImageStore implements ImageLoader {
         (err: unknown) => {
           console.warn(`Rich TeX Editor: could not load ${ref}`, err)
           this.pending.delete(ref)
+          // Found, then failed (rewritten or cut short while it was read): keep the miss with
+          // the version it failed on, so the next check reloads it once the file changes.
+          if (this.location && this.stamps.has(ref)) this.images.set(ref, null)
           return null
         }
       )
@@ -158,6 +220,8 @@ export class ImageStore implements ImageLoader {
     let offset = 0
     let mime = ''
     let path = ''
+    let stamp: string | null = null
+    this.stamps.delete(ref)
     for (;;) {
       const answer = await orca.plugin.request(
         'image.read',
@@ -167,6 +231,10 @@ export class ImageStore implements ImageLoader {
       if (!answer.found) return null
       mime = answer.mime
       path = answer.path
+      // Every chunk must come from the version the first one did, or the bytes are a mix.
+      const now = stampOf(answer)
+      if (stamp === null) this.stamps.set(ref, (stamp = now))
+      else if (now !== stamp) throw new Error(`${ref} changed while it was read`)
       // PDF figures are not drawn (a PDF renderer would double the plugin's size): knowing the
       // file is there is enough, so the rest of it is not read.
       if (mime === 'application/pdf') return { url: null, path, mime }
@@ -200,7 +268,11 @@ export class ImageStore implements ImageLoader {
       const { path } = await orca.plugin.request('image.commit', { uploadId }, { timeoutMs: 30000 })
       // Show it at once, without reading it back.
       const url = file.type === 'application/pdf' ? null : URL.createObjectURL(file)
+      // Figures that already named this path (shown as missing) draw it now.
+      const named = this.images.has(path)
+      this.forget(path)
       this.images.set(path, { url, path, mime: file.type })
+      if (named) this.bump()
       return path
     } catch (err) {
       throw new ImageError(`Could not save ${name}`, codeOf(err))

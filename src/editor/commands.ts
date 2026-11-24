@@ -1,5 +1,5 @@
 import { snippet } from '@codemirror/autocomplete'
-import { EditorSelection, type EditorState, type StateCommand } from '@codemirror/state'
+import { EditorSelection, type EditorState, type StateCommand, Text, type TransactionSpec } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import type { FormatConstruct, HeadingConstruct } from '../latex/scan'
 import { analysisField } from './analysis'
@@ -161,21 +161,30 @@ export function insertBlock(view: EditorView, template: string): boolean {
     view.focus()
     return true
   }
+  view.dispatch(wrapSelection(state, template))
+  view.focus()
+  return true
+}
+
+/** Puts the main selection into `template` at `#{selection}`, on lines of its own, and selects
+ *  the template's first other field (or puts the cursor after the block). */
+export function wrapSelection(state: EditorState, template: string): TransactionSpec {
+  const main = state.selection.main
   const lead = state.doc.lineAt(main.from)
   const tail = state.doc.lineAt(main.to)
   const before = lead.text.slice(0, main.from - lead.from).trim() !== '' ? '\n' : ''
   const after = tail.text.slice(main.to - tail.from).trim() !== '' ? '\n' : ''
-  const { text, field } = fillTemplate(template, state.sliceDoc(main.from, main.to))
-  const insert = `${before}${text}${after}`.replace(/\n/g, state.lineBreak)
+  // Worked out with `\n` breaks, one position each as in the document, and inserted as lines,
+  // so a CRLF document gets its own line breaks.
+  const { text, field } = fillTemplate(template, state.doc.sliceString(main.from, main.to))
+  const block = `${before}${text}${after}`
   const shift = (n: number) => main.from + before.length + n
-  view.dispatch({
-    changes: { from: main.from, to: main.to, insert },
-    selection: field ? { anchor: shift(field[0]), head: shift(field[1]) } : { anchor: main.from + insert.length },
+  return {
+    changes: { from: main.from, to: main.to, insert: Text.of(block.split('\n')) },
+    selection: field ? { anchor: shift(field[0]), head: shift(field[1]) } : { anchor: main.from + block.length },
     userEvent: 'input.format',
     scrollIntoView: true
-  })
-  view.focus()
-  return true
+  }
 }
 
 /** Wraps the selected lines as list items, or starts a list with one empty item. */
@@ -195,7 +204,7 @@ export function insertList(view: EditorView, env: 'itemize' | 'enumerate'): bool
           .filter((l) => l.trim() !== '')
           .map((l) => `  \\item ${l.trim().replace(/^\\item\s*/, '')}`)
           .join('\n')
-    const insert = `\\begin{${env}}\n${items}\n\\end{${env}}`.replace(/\n/g, state.lineBreak)
+    const insert = Text.of(`\\begin{${env}}\n${items}\n\\end{${env}}`.split('\n'))
     view.dispatch({
       changes: { from: first.from, to: last.to, insert },
       userEvent: 'input.format',

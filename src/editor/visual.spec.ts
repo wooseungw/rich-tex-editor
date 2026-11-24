@@ -1,9 +1,10 @@
-import { EditorSelection, EditorState } from '@codemirror/state'
+import { EditorSelection, EditorState, Text } from '@codemirror/state'
 import type { Decoration } from '@codemirror/view'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { analysisField } from './analysis'
-import { fillTemplate } from './commands'
+import { fillTemplate, wrapSelection } from './commands'
+import { crlfLineBreaks, openingOf } from './setup'
 import {
   atomicRangesFor,
   boundaryMarkers,
@@ -253,6 +254,45 @@ test('wrapping a selection keeps its dollars, backslashes and indentation exactl
   const { text, field } = fillTemplate('\\begin{equation}\n  #{selection}\n  \\label{eq:#{key}}\n\\end{equation}', 'x')
   assert.ok(field)
   assert.equal(text.slice(field[0], field[1]), 'key')
+})
+
+test('in a CRLF file, wrapping lines in a block adds no stray carriage returns', () => {
+  const crlf = (lines: string[], from: number, to: number) =>
+    EditorState.create({
+      doc: Text.of(lines),
+      selection: EditorSelection.range(from, to),
+      extensions: [EditorState.lineSeparator.of('\r\n')]
+    })
+  // "One" and "Two" selected (positions count a line break as one).
+  const state = crlf(['A', 'One', 'Two', 'B'], 2, 9)
+  const theorem = state.update(wrapSelection(state, '\\begin{theorem}\n  #{selection}\n\\end{theorem}')!).state
+  assert.equal(theorem.sliceDoc(), 'A\r\n\\begin{theorem}\r\n  One\r\nTwo\r\n\\end{theorem}\r\nB')
+  assert.equal(theorem.selection.main.head, theorem.doc.line(5).to)
+
+  const equation = state.update(wrapSelection(state, '\\begin{equation}\n  #{selection}\n  \\label{eq:#{key}}\n\\end{equation}')!).state
+  const { from, to } = equation.selection.main
+  assert.equal(equation.sliceDoc(from, to), 'key')
+})
+
+test('a CRLF file opens with the cursor after \\begin{document}, however long its preamble', () => {
+  const preamble = Array.from({ length: 25 }, (_, i) => `\\usepackage{p${i}}`).join('\r\n')
+  const { doc, cursor, crlf } = openingOf(`\\documentclass{article}\r\n${preamble}\r\n\\begin{document}\r\nHi\r\n\\end{document}`)
+  assert.equal(crlf, true)
+  assert.equal(cursor, doc.line(27).to)
+  assert.equal(doc.line(27).text, '\\begin{document}')
+  const mixed = openingOf('a\nb\r\n\\begin{document}\nx')
+  assert.equal(mixed.cursor, mixed.doc.line(3).to)
+})
+
+test('in a CRLF file, pasted text with LF breaks is split into lines with CRLF', () => {
+  const state = EditorState.create({ doc: Text.of(['A', 'B']), extensions: crlfLineBreaks })
+  const next = state.update({ changes: { from: 1, insert: 'p\nq\rr' }, selection: { anchor: 7 } }).state
+  assert.equal(next.sliceDoc(), 'Ap\r\nq\r\nr\r\nB')
+  assert.equal(next.doc.lines, 4)
+  assert.equal(next.selection.main.head, 7)
+  // Text that already has CRLF breaks is left as it is.
+  const plain = state.update({ changes: { from: 1, insert: 'x\r\ny' } }).state
+  assert.equal(plain.sliceDoc(), 'Ax\r\ny\r\nB')
 })
 
 test('with boundary markers on, environments show where they begin and end', () => {

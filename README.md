@@ -19,7 +19,12 @@ is saved into a `figures/` folder next to the `.tex` file (never overwriting a f
 `figure` with a caption to fill in is inserted. Images that `\includegraphics` references are shown
 in both views, including extension-less names and `\graphicspath` folders: PNG, JPEG, GIF, WebP
 and SVG, up to 25 MB each. PDF figures can be added and are found, but show as a card with their
-path rather than drawn (a PDF renderer would more than double the plugin's size). The
+path rather than drawn (a PDF renderer would more than double the plugin's size). A figure
+redrawn on disk (a script or an agent writes a new plot) shows its new version within a few
+seconds, and one the document names before it exists appears once it is written. TikZ, pgfplots
+and other pictures only TeX can draw are not drawn here: the visual view shows their code as code
+and the preview a card in their place. To see one, compile it to an image (as
+`examples/figures/descent.tex` is) and `\includegraphics` that; it updates when you recompile. The
 editor finds the `.tex` file on disk by its contents, so if the tab already had unsaved changes
 when it opened, save once before adding an image; it never guesses another folder.
 

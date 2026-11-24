@@ -34,3 +34,8 @@ test('detects files that use CRLF throughout', () => {
   assert.equal(crlfOf('a\r\nb\nc'), null)
   assert.equal(crlfOf('\nfirst'), null)
 })
+
+test('a CRLF file with a few LF lines (an edit made elsewhere) stays CRLF', () => {
+  assert.equal(crlfOf('a\r\nb\r\nc\nd\r\n'), '\r\n')
+  assert.equal(crlfOf('a\nb\nc\r\nd\n'), null)
+})

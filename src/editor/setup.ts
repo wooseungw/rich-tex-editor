@@ -3,7 +3,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from
 import { bracketMatching, HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting } from '@codemirror/language'
 import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Annotation, Compartment, EditorState, type Extension, Transaction } from '@codemirror/state'
+import { Annotation, Compartment, EditorState, type Extension, Text, Transaction } from '@codemirror/state'
 import {
   drawSelection,
   dropCursor,
@@ -88,15 +88,48 @@ function initialCursor(text: string): number {
   return eol < 0 ? text.length : eol
 }
 
+/**
+ * A CRLF document. CodeMirror then splits inserted text only at `\r\n`, so text pasted or
+ * dropped with `\n` breaks would stay inside one line and be saved with mixed line breaks: each
+ * lone `\n` or `\r` that lands inside a line becomes a line break too. Positions do not move,
+ * since one character becomes one line break.
+ */
+export const crlfLineBreaks: Extension = [
+  EditorState.lineSeparator.of('\r\n'),
+  EditorState.transactionFilter.of((tr) => {
+    if (!tr.docChanged) return tr
+    const breaks: { from: number; to: number; insert: string }[] = []
+    tr.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
+      let pos = fromB
+      for (let lines = inserted.iterLines(); !lines.next().done; ) {
+        for (const m of lines.value.matchAll(/[\r\n]/g)) breaks.push({ from: pos + m.index, to: pos + m.index + 1, insert: '\r\n' })
+        pos += lines.value.length + 1
+      }
+    })
+    return breaks.length === 0 ? tr : [tr, { changes: breaks, sequential: true }]
+  })
+]
+
+/**
+ * The document as the editor holds it, split at any line break (`\r\n` counts as one position),
+ * the line break it is saved with, and where the cursor starts.
+ */
+export function openingOf(text: string): { doc: Text; crlf: boolean; cursor: number } {
+  const doc = Text.of(text.split(/\r\n?|\n/))
+  // Found in the text as split, not in `text`, whose `\r\n` would count twice.
+  return { doc, crlf: crlfOf(text) !== null, cursor: initialCursor(doc.toString()) }
+}
+
 export function createEditor(options: EditorOptions): EditorView {
+  const { doc, crlf, cursor } = openingOf(options.text)
   return new EditorView({
     parent: options.parent,
     state: EditorState.create({
-      doc: options.text,
-      selection: { anchor: initialCursor(options.text) },
+      doc,
+      selection: { anchor: cursor },
       extensions: [
         // Keep a CRLF file CRLF: positions still count each line break as one character.
-        crlfOf(options.text) ? EditorState.lineSeparator.of('\r\n') : [],
+        crlf ? crlfLineBreaks : [],
         options.extensions ?? [],
         analysisField,
         focusTracking,

@@ -225,6 +225,21 @@ const VERBATIM_ENVIRONMENTS = new Set([
   'filecontents*'
 ])
 
+/** Environments only TeX can draw (TikZ, PSTricks…); the preview shows a card in their place. */
+const PICTURE_ENVIRONMENTS = new Set([
+  'tikzpicture',
+  'pgfpicture',
+  'circuitikz',
+  'forest',
+  'picture',
+  'pspicture',
+  'asy',
+  'tikzcd',
+  'dot2tex',
+  'gnuplot',
+  'pythontex'
+])
+
 const FORMAT_COMMANDS: Readonly<Record<string, FormatStyle>> = {
   textbf: 'bold',
   textit: 'italic',
@@ -1253,6 +1268,17 @@ class Scanner {
             ? { kind: 'comment', from: at, to }
             : { kind: 'verbatim', from: at, to, env: name, bodyFrom, bodyTo: close }
         )
+        return to
+      }
+    }
+
+    // Pictures are drawn by TeX, never here: their code shows as code, and nothing in it is read
+    // as text or math (`--` is a path, not a dash).
+    if (begin && PICTURE_ENVIRONMENTS.has(name)) {
+      // The end of the matching `\end{…}`, so a picture drawn inside another stays inside it.
+      const to = this.findMatchingEnd(name, arg.to, end)
+      if (to >= 0) {
+        this.constructs.push({ kind: 'verbatim', from: at, to, env: name, bodyFrom: arg.to, bodyTo: to - `\\end{${name}}`.length })
         return to
       }
     }

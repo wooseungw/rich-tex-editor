@@ -230,6 +230,8 @@ test('image.read resolves extensionless refs and \\graphicspath folders', async 
 
   const pdf = await read('figures/plot.pdf')
   assert.ok(pdf.found && pdf.mime === 'application/pdf')
+  // The editor does not draw PDFs, so none of their bytes are sent.
+  assert.deepEqual([pdf.data, pdf.next, pdf.size], ['', null, 3])
   const upper = await read('figures/only.PDF')
   assert.ok(upper.found && upper.path === 'figures/only.PDF')
   const logo = await read('logo', ['figures/', '../shared/'])
@@ -240,6 +242,36 @@ test('image.read resolves extensionless refs and \\graphicspath folders', async 
   assert.deepEqual(await read('notes.txt'), { found: false })
   assert.deepEqual(await read('main.tex'), { found: false })
   assert.deepEqual(await read('../../../../../../etc/hosts'), { found: false })
+})
+
+test('image.stat tells where an image is now and when it changed, without its bytes', async () => {
+  const { root, orca, location } = await setup({ 'paper/main.tex': TEX, 'paper/figures/plot.png': randomBytes(10) })
+  const stat = (ref: string) => orca.request('image.stat', { location, ref, graphicsPath: [] })
+
+  const first = await stat('figures/plot')
+  assert.ok(first.found)
+  assert.deepEqual([first.path, first.size, 'data' in first], ['figures/plot.png', 10, false])
+  assert.equal(typeof first.mtimeMs, 'number')
+
+  await write(root, 'paper/figures/plot.png', randomBytes(20))
+  const redrawn = await stat('figures/plot')
+  assert.ok(redrawn.found && redrawn.size === 20)
+
+  assert.deepEqual(await stat('figures/later'), { found: false })
+  await write(root, 'paper/figures/later.png', randomBytes(5))
+  assert.ok((await stat('figures/later')).found)
+  assert.deepEqual(await stat('../../../../../../etc/hosts'), { found: false })
+
+  // A file that cannot be read is missing to both requests, so the editor never sees it "found"
+  // by one and "missing" by the other on every check.
+  await write(root, 'paper/figures/locked.png', randomBytes(5))
+  await fs.chmod(path.join(root, 'paper/figures/locked.png'), 0o000)
+  try {
+    assert.deepEqual(await stat('figures/locked.png'), { found: false })
+    assert.deepEqual(await orca.request('image.read', { location, ref: 'figures/locked.png', graphicsPath: [], offset: 0 }), { found: false })
+  } finally {
+    await fs.chmod(path.join(root, 'paper/figures/locked.png'), 0o644)
+  }
 })
 
 test('image.read chunks a large file that reassembles exactly', async () => {

@@ -84,6 +84,13 @@ async function main(): Promise<void> {
   images.setGraphicsPath(scan(doc.value).graphicsPath)
   // Find the file now, while the text still matches what is on disk.
   void images.locate()
+  // Figures change on disk while the document is open (a script or an agent redraws a plot, or
+  // makes one the document already names): look again now and then while the editor is visible.
+  const recheckImages = () => {
+    if (document.visibilityState === 'visible') void images.revalidate()
+  }
+  setInterval(recheckImages, 4000)
+  window.addEventListener('focus', recheckImages)
 
   /**
    * Swaps the preview's image placeholders for the images. Each re-render reuses the same,

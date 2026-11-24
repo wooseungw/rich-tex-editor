@@ -65,13 +65,20 @@ declare module 'orca' {
      * IMAGE_EXTENSIONS in order. Answers `found: false` for anything outside `root`, any other
      * file type, or a missing file. A null `location` resolves against the focused workspace's
      * root. `data` is the base64 of bytes `[offset, offset + READ_CHUNK_BYTES)`;
-     * `next` is the offset to ask for next, or null at the end.
+     * `next` is the offset to ask for next, or null at the end. A PDF, which the editor does not
+     * draw, comes with no bytes.
      */
     'image.read': {
       input: { location: TexLocation | null; ref: string; graphicsPath: string[]; offset: number }
       output:
         | { found: false }
         | { found: true; path: string; mime: string; size: number; mtimeMs: number; data: string; next: number | null }
+    }
+    /** Where `image.read` would find `ref` now, with its size and modification time but not its
+     *  bytes: the editor asks again for images it shows, to notice ones redrawn on disk. */
+    'image.stat': {
+      input: { location: TexLocation | null; ref: string; graphicsPath: string[] }
+      output: { found: false } | { found: true; path: string; size: number; mtimeMs: number }
     }
   }
 }

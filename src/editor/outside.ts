@@ -30,7 +30,14 @@ export function outsideChanges(current: string, next: string): TextChange[] {
   }))
 }
 
-/** `\r\n` when the file uses it throughout; otherwise null (CodeMirror's `\n` default). */
+/**
+ * `\r\n` when most of the file's line breaks are CRLF; otherwise null (CodeMirror's `\n`
+ * default). A CRLF file with a few LF lines (an edit made by another tool) stays CRLF, so a
+ * keystroke rewrites those few lines rather than every line in the file.
+ */
 export function crlfOf(text: string): '\r\n' | null {
-  return text.includes('\r\n') && !/(^|[^\r])\n/.test(text) ? '\r\n' : null
+  const crlf = text.split('\r\n').length - 1
+  if (crlf === 0) return null
+  const lf = text.split('\n').length - 1 - crlf
+  return crlf > lf ? '\r\n' : null
 }

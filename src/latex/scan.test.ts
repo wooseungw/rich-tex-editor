@@ -175,6 +175,19 @@ test('verbatim content is not scanned', () => {
   assert.deepEqual(kinds(src), ['verbatim', 'verbatim'])
 })
 
+test('a TikZ picture is code: its paths and labels are not read as text or math', () => {
+  const pic = '\\begin{tikzpicture}\n  \\draw (0,0) -- (1,1) node {$x$};\n  \\begin{axis}\\addplot {x};\\end{axis}\n\\end{tikzpicture}'
+  const src = `a\n${pic}\nb -- c`
+  const c = first(src, 'verbatim')
+  assert.ok(c)
+  assert.deepEqual([c.env, slice(src, c)], ['tikzpicture', pic])
+  // Only the dash after the picture is text.
+  assert.deepEqual(kinds(src), ['verbatim', 'symbol'])
+  // A picture inside a picture ends at its own \end.
+  const nested = '\\begin{tikzpicture}\\begin{tikzpicture}x\\end{tikzpicture}y\\end{tikzpicture}'
+  assert.equal(slice(nested, first(nested, 'verbatim')!), nested)
+})
+
 test('the comment environment is one comment', () => {
   assert.deepEqual(kinds('\\begin{comment}\n$x$\n\\end{comment}'), ['comment'])
 })
