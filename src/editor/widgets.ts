@@ -1,5 +1,6 @@
 import { type EditorView, WidgetType } from '@codemirror/view'
 import type { MacroMap } from '../latex/macros'
+import { plainText } from '../latex/scan'
 import { renderFragment } from './fragment'
 import { imageLoader, type LoadedImage } from './image-loader'
 import type { FailedPicture } from '../protocol'
@@ -170,12 +171,46 @@ export class EnvTitleWidget extends RevealWidget {
     readonly title: string,
     readonly note: string | null,
     readonly className: string,
-    reveal: number
+    reveal: number,
+    /** The note as written, when it has math to draw (`$45^\circ$`). */
+    readonly math: { source: string; macros: MacroMap; macrosKey: string } | null = null
   ) {
     super(reveal)
   }
   override eq(other: EnvTitleWidget): boolean {
-    return other.title === this.title && other.note === this.note && other.className === this.className && other.reveal === this.reveal
+    return (
+      other.title === this.title &&
+      other.note === this.note &&
+      other.className === this.className &&
+      other.reveal === this.reveal &&
+      other.math?.source === this.math?.source &&
+      other.math?.macrosKey === this.math?.macrosKey
+    )
+  }
+  /** The note's text, with its `$…$` and `\(…\)` drawn by KaTeX. */
+  private noteNode(): Node {
+    if (!this.math) return document.createTextNode(this.note ?? '')
+    const box = document.createElement('span')
+    const source = this.math.source
+    const re = /\$([^$]+)\$|\\\(([\s\S]+?)\\\)/g
+    let last = 0
+    // Text between the math keeps the spaces around it (plainText trims them).
+    const text = (part: string) => {
+      const plain = plainText(part)
+      return plain ? `${/^\s/.test(part) ? ' ' : ''}${plain}${/\s$/.test(part) ? ' ' : ''}` : /\s/.test(part) ? ' ' : ''
+    }
+    for (const m of source.matchAll(re)) {
+      if (m.index > last) box.append(text(source.slice(last, m.index)))
+      const rendered = renderMath(m[1] ?? m[2], false, this.math.macros, this.math.macrosKey)
+      const math = document.createElement('span')
+      math.className = 'cm-rt-math cm-rt-math-inline'
+      if (rendered.error) math.textContent = m[0]
+      else math.innerHTML = rendered.html
+      box.append(math)
+      last = m.index + m[0].length
+    }
+    if (last < source.length) box.append(text(source.slice(last)))
+    return box
   }
   override toDOM(): HTMLElement {
     const el = document.createElement('span')
@@ -184,7 +219,7 @@ export class EnvTitleWidget extends RevealWidget {
     title.className = 'cm-rt-envtitle-name'
     title.textContent = this.title
     el.append(title)
-    if (this.note) el.append(` (${this.note})`)
+    if (this.note) el.append(' (', this.noteNode(), ')')
     if (this.className.includes('cm-rt-theorem-label')) el.append('.')
     return this.mark(el)
   }

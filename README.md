@@ -107,7 +107,9 @@ its parents, inside the workspace only. It makes no network requests.
 
 To draw pictures it runs your TeX distribution's own programs (`latex`, `pdflatex`, `xelatex`,
 `lualatex`, `platex`, `uplatex`, `dvisvgm`, `kpsewhich`, and `pdftocairo` or `mutool` when
-installed), found on your PATH and in the usual TeX install folders, and nothing else. Each run
+installed), found on your PATH and in the usual TeX install folders, and nothing else. Only when
+none is found there does it start your login shell once (`$SHELL -lc`) to read the PATH it sets,
+as apps started from the Dock do not see it. Each run
 happens in a new temporary folder that is deleted afterwards, with shell escape off
 (`-no-shell-escape`, `shell_escape=f`), writing only inside that folder (`openout_any=p`, at most
 64 MB), reading only the document's folders and the TeX distribution (`openin_any=p`: no absolute
@@ -161,7 +163,8 @@ as they are. The sources are in `src/`:
 | `src/ui/`                 | Toolbar and the preview pane                                   |
 
 KaTeX is © Khan Academy and contributors (MIT); its stylesheet and fonts ship in
-`editor/vendor/katex/`. CodeMirror is © Marijn Haverbeke and contributors (MIT).
+`editor/vendor/katex/`. CodeMirror and Lezer are © Marijn Haverbeke and contributors (MIT). The
+licenses of everything bundled in `editor/app.js` are in `THIRD_PARTY_LICENSES.txt`.
 
 ## License
 

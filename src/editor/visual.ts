@@ -401,7 +401,7 @@ function decorate(
       return c.to
     }
     case 'env':
-      decorateEnvironment(c, doc, reveal, sink, foldables, blockNames, state.facet(boundaryMarkers))
+      decorateEnvironment(c, a, doc, reveal, sink, foldables, blockNames, state.facet(boundaryMarkers))
       return -1
     case 'layout':
       foldables.push({ from: c.from, to: c.to })
@@ -612,6 +612,7 @@ function decorateFormat(c: FormatConstruct, state: EditorState, reveal: Reveal, 
 
 function decorateEnvironment(
   c: EnvConstruct,
+  a: Analysis,
   doc: Text,
   reveal: Reveal,
   sink: Sink,
@@ -627,7 +628,9 @@ function decorateEnvironment(
   const titled = (title: string, note: string | null, className: string, lineClass: string) => {
     if (reveal.inside(from, to)) return
     if (alone) sink.add(Decoration.line({ class: lineClass }).range(line.from))
-    sink.replace(Decoration.replace({ widget: new EnvTitleWidget(title, note, className, c.from - from + open) }), from, to)
+    // A theorem's name with math in it (`[… $45^\circ$ …]`) is drawn with its math.
+    const math = note && c.optionSource ? { source: c.optionSource, macros: a.macros, macrosKey: a.macrosKey } : null
+    sink.replace(Decoration.replace({ widget: new EnvTitleWidget(title, note, className, c.from - from + open, math) }), from, to)
   }
 
   if (c.begin && c.heading) {

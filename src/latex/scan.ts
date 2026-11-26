@@ -79,6 +79,8 @@ export interface EnvConstruct extends Span {
   begin: boolean
   /** Optional argument text such as a theorem name or figure placement. */
   option: string | null
+  /** The optional argument as written (`완전 피복성과 $45^\circ$ 회전`), for a title with math. */
+  optionSource?: string
   /** Theorem-like environments: what LaTeX prints, `Theorem 2`, `Proof`. */
   heading?: string
 }
@@ -1386,10 +1388,12 @@ class Scanner {
 
     let to = arg.to
     let option: string | null = null
+    let optionSource: string | undefined
     if (begin) {
       const opt = this.readGroup(to, end, '[', ']')
       if (opt) {
-        option = plainText(text.slice(opt.innerFrom, opt.innerTo))
+        optionSource = text.slice(opt.innerFrom, opt.innerTo)
+        option = plainText(optionSource)
         to = opt.to
       }
       // Arguments that belong to the environment's opening, such as `{9}` or `{0.5\linewidth}`.
@@ -1400,6 +1404,7 @@ class Scanner {
       }
     }
     const construct: EnvConstruct = { kind: 'env', from: at, to, name, begin, option }
+    if (optionSource !== undefined && /\$|\\\(/.test(optionSource)) construct.optionSource = optionSource
     if (begin) {
       const heading = this.theoremHeading(name)
       if (heading) construct.heading = heading

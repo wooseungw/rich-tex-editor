@@ -422,3 +422,10 @@ test('a picture in a file of its own (\\input{plot.pgf}) is drawn; other inputs 
   const chapter = withPictures('|x\n\\input{chapters/one}\ny', { state: 'drawn', picture: shown })
   assert.deepEqual(chapter.asked, [])
 })
+
+test('a theorem name with math keeps its math for the title', () => {
+  const r = decorations('|x\n\\begin{proposition}[완전 피복성과 $45^\\circ$ 회전 순환 등변성]\nBody.\n\\end{proposition}')
+  const title = r.seen.find((s) => s.widget instanceof EnvTitleWidget && (s.widget as EnvTitleWidget).note !== null)
+  assert.ok(title)
+  assert.equal((title.widget as EnvTitleWidget).math?.source, '완전 피복성과 $45^\\circ$ 회전 순환 등변성')
+})
