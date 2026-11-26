@@ -18,8 +18,11 @@ views you can switch between at any time. The file stays plain LaTeX on disk.
 is saved into a `figures/` folder next to the `.tex` file (never overwriting a file) and a
 `figure` with a caption to fill in is inserted. Images that `\includegraphics` references are shown
 in both views, including extension-less names and `\graphicspath` folders: PNG, JPEG, GIF, WebP
-and SVG, up to 25 MB each. PDF figures can be added and are found, but show as a card with their
-path rather than drawn (a PDF renderer would more than double the plugin's size). A figure
+and SVG, up to 25 MB each. In a section file (`\input` into a main document) paths are read as
+LaTeX reads them: from the main document's folder and its `\graphicspath`, also when that is set
+in a file its preamble `\input`s or a local `.sty`. PDF figures are drawn (their first page) when
+poppler's `pdftocairo` or `mutool` is installed, under the same toolbar switch as TeX pictures;
+otherwise they show as a card with their path. A figure
 redrawn on disk (a script or an agent writes a new plot) shows its new version within a few
 seconds, and one the document names before it exists appears once it is written. The
 editor finds the `.tex` file on disk by its contents, so if the tab already had unsaved changes

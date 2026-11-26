@@ -85,6 +85,8 @@ export class ImageStore implements ImageLoader {
   generation = 0
   /** Called after the generation rises. */
   onChange: (() => void) | null = null
+  /** Whether PDF figures may be drawn (with the TeX tools, as pictures are). */
+  drawPdf: () => boolean = () => false
 
   private bump(): void {
     this.generation++
@@ -190,6 +192,12 @@ export class ImageStore implements ImageLoader {
     }
   }
 
+  /** Loads every image again (drawing PDFs was turned on or off). */
+  reload(): void {
+    for (const ref of [...this.images.keys()]) this.forget(ref)
+    this.bump()
+  }
+
   private forget(ref: string): void {
     const image = this.images.get(ref)
     this.images.delete(ref)
@@ -235,7 +243,7 @@ export class ImageStore implements ImageLoader {
     for (;;) {
       const answer = await orca.plugin.request(
         'image.read',
-        { location, ref, graphicsPath: this.graphicsPath, offset },
+        { location, ref, graphicsPath: this.graphicsPath, offset, drawPdf: this.drawPdf() },
         { timeoutMs: 30000 }
       )
       if (!answer.found) return null

@@ -171,7 +171,9 @@ declare module 'orca' {
      * draw, comes with no bytes.
      */
     'image.read': {
-      input: { location: TexLocation | null; ref: string; graphicsPath: string[]; offset: number }
+      /** `drawPdf`: a PDF comes as an SVG of its first page (mime image/svg+xml) when this
+       *  computer has a PDF converter; its size and time stay the PDF's. */
+      input: { location: TexLocation | null; ref: string; graphicsPath: string[]; offset: number; drawPdf?: boolean }
       output:
         | { found: false }
         | { found: true; path: string; mime: string; size: number; mtimeMs: number; data: string; next: number | null }

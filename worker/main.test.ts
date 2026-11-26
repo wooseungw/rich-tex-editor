@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { afterEach, assert, mockHost, mountWorker, test } from 'orca/testing'
 import { MAX_IMAGE_BYTES, READ_CHUNK_BYTES, UPLOAD_CHUNK_BYTES, type TexLocation } from '../src/protocol'
 import * as worker from './main'
+import { findToolchain } from './tex/toolchain'
 
 const TEX = '\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n'
 const temporary: string[] = []
@@ -242,6 +243,88 @@ test('image.read resolves extensionless refs and \\graphicspath folders', async 
   assert.deepEqual(await read('notes.txt'), { found: false })
   assert.deepEqual(await read('main.tex'), { found: false })
   assert.deepEqual(await read('../../../../../../etc/hosts'), { found: false })
+})
+
+test('a section file finds images the way LaTeX does: from its root document folder', async () => {
+  const png = randomBytes(32)
+  const main = '\\documentclass{article}\n\\usepackage{graphicx}\n\\graphicspath{{images/}{../shared/}}\n\\begin{document}\n\\input{sections/intro}\n\\end{document}\n'
+  const { orca, root } = await setup({
+    'paper/main.tex': main,
+    'paper/sections/intro.tex': '\\section{Intro}\n\\includegraphics{figures/plot}\n',
+    'paper/sections/local.png': png,
+    'paper/figures/plot.png': png,
+    'paper/images/arch.jpg': 'jpg',
+    'shared/logo.png': png,
+    'other/main.tex': '\\documentclass{article}\\graphicspath{{secret/}}\\begin{document}\\end{document}',
+    'other/secret/hidden.png': png
+  })
+  const location: TexLocation = { root, dir: 'paper/sections', file: 'intro.tex' }
+  const read = (ref: string) => orca.request('image.read', { location, ref, graphicsPath: [], offset: 0 })
+  const plot = await read('figures/plot')
+  assert.ok(plot.found, 'relative to the root document, as LaTeX reads it')
+  assert.equal(plot.path, 'figures/plot.png')
+  const arch = await read('arch')
+  assert.ok(arch.found && arch.mime === 'image/jpeg', "through the root's \\graphicspath")
+  assert.ok((await read('logo')).found, '\\graphicspath folders outside the root folder, inside the workspace')
+  assert.ok((await read('local')).found, 'next to the section file still works (it is looked at first)')
+  assert.deepEqual(await read('hidden'), { found: false }, "another document's \\graphicspath does not count")
+  const stat = await orca.request('image.stat', { location, ref: 'figures/plot', graphicsPath: [] })
+  assert.ok(stat.found)
+  // A `% !TEX root` comment names the root when nothing \input's the file.
+  await write(root, 'paper/appendix/extra.tex', '% !TEX root = ../main.tex\n\\section{Extra}')
+  const named = await orca.request('image.read', { location: { root, dir: 'paper/appendix', file: 'extra.tex' }, ref: 'arch', graphicsPath: [], offset: 0 })
+  assert.ok(named.found)
+  // The file name is a name: never a path to read elsewhere.
+  for (const file of ['../../../etc/hosts', '..', 'a/b.tex']) {
+    await assert.rejects(
+      orca.request('image.read', { location: { root, dir: 'paper', file }, ref: 'nothing-here', graphicsPath: [], offset: 0 }),
+      withCode('invalid_location')
+    )
+  }
+})
+
+/** A one-page PDF with a filled rectangle, built by hand (xref offsets computed). */
+function tinyPdf(): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 60 40] /Contents 4 0 R >>',
+    '<< /Length 36 >>\nstream\n1 0 0 rg 10 10 40 20 re f\nendstream'
+  ]
+  let body = '%PDF-1.4\n'
+  const offsets: number[] = []
+  objects.forEach((o, i) => {
+    offsets.push(Buffer.byteLength(body))
+    body += `${i + 1} 0 obj\n${o}\nendobj\n`
+  })
+  const xref = Buffer.byteLength(body)
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(body)
+}
+
+test('PDF figures come as SVG when asked and a converter is installed; \\graphicspath in an \\input file counts', async () => {
+  const main = '\\documentclass{article}\n\\input{setup}\n\\begin{document}\n\\includegraphics{loss}\n\\end{document}\n'
+  const { orca, root } = await setup({
+    'paper/main.tex': main,
+    'paper/setup.tex': '\\usepackage{graphicx}\n\\graphicspath{{plots/}}\n',
+    'paper/plots/loss.pdf': tinyPdf()
+  })
+  const location: TexLocation = { root, dir: 'paper', file: 'main.tex' }
+  const plain = await orca.request('image.read', { location, ref: 'loss', graphicsPath: [], offset: 0 })
+  assert.ok(plain.found && plain.mime === 'application/pdf' && plain.data === '', "found through setup.tex's \\graphicspath; not drawn unless asked")
+  const tools = await findToolchain()
+  if (!tools.bin.pdftocairo && !tools.bin.mutool) return
+  const drawn = await orca.request('image.read', { location, ref: 'loss', graphicsPath: [], offset: 0, drawPdf: true })
+  assert.ok(drawn.found)
+  assert.equal(drawn.mime, 'image/svg+xml')
+  const svg = Buffer.from(drawn.data, 'base64').toString('utf8')
+  assert.match(svg, /<svg\b/)
+  assert.ok(!/<script|xlink:href="(?!#|data:)/.test(svg))
+  // The stamp is the PDF's, as image.stat reports it.
+  const stat = await orca.request('image.stat', { location, ref: 'loss', graphicsPath: [] })
+  assert.ok(stat.found)
+  assert.deepEqual([drawn.size, drawn.mtimeMs], [stat.size, stat.mtimeMs])
 })
 
 test('image.stat tells where an image is now and when it changed, without its bytes', async () => {

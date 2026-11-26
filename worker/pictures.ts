@@ -20,8 +20,9 @@ import { fail } from './files'
 import { cacheFolder, JobQueue, keyOf, PictureCache, type Picture } from './tex/cache'
 import { compilePicture, literalFolder, type CompileResult } from './tex/compile'
 import { chooseEngine, documentClass, magicEngine, type EngineChoice } from './tex/engine'
-import { findLatexmkrc, findRoot } from './tex/root'
-import { findToolchain, pdfConverter, type Toolchain } from './tex/toolchain'
+import { findLatexmkrc, type RootFinder } from './tex/root'
+import { pdfConverter } from './tex/toolchain'
+import type { ToolchainCache } from './tex/tools'
 
 /** Bumped whenever the way pictures are drawn changes, so older cached drawings are not reused. */
 const PICTURE_VERSION = 1
@@ -29,7 +30,6 @@ const MODES: readonly SnippetMode[] = ['block', 'inline', 'display-math', 'inlin
 const TEXT_STORE_CHARS = 32 * 1024 * 1024
 const MAX_PARTIAL_TEXTS = 16
 const MAX_GRAPHICS_PATHS = 32
-const ROOT_TTL_MS = 5000
 /** How long a failure is remembered (the same broken picture is not compiled again meanwhile). */
 const FAILURE_TTL_MS = 10 * 60 * 1000
 /** A whole drawing, queue wait included, ends before the editor's request (110 s) gives up. */
@@ -48,32 +48,21 @@ const inside = (root: string, file: string) => file === root || file.startsWith(
  * Registers the picture handlers. `place` checks a frame's location the way image requests do,
  * answering the workspace folder and the .tex folder, or null when there is none.
  */
-export function registerPictures(orca: OrcaWorkerApi, place: (location: TexLocation | null) => Promise<Where | null>): void {
+export function registerPictures(
+  orca: OrcaWorkerApi,
+  place: (location: TexLocation | null) => Promise<Where | null>,
+  roots: RootFinder,
+  toolchains: ToolchainCache
+): void {
   const texts = new Map<string, string>()
   let textChars = 0
   const partial = new Map<string, { count: number; parts: Array<string | undefined>; received: number; touched: number }>()
-  let tools: Promise<Toolchain> | null = null
-  let toolsAt = 0
   const cache = new PictureCache(cacheFolder())
   const failures = new Map<string, { at: number; answer: PictureAnswer; deps: CompileResult['deps'] }>()
   const queue = new JobQueue<CompileResult>(Math.max(1, Math.min(3, Math.floor(os.cpus().length / 2))))
-  const roots = new Map<string, { at: number; value: Promise<{ preamble: string; text: string; dir: string } | null> }>()
   void cache.prune()
 
-  let toolsFound = false
-  function toolchain(refresh = false): Promise<Toolchain> {
-    // Found once, kept; not found, looked for again after a minute (TeX may have just been installed).
-    if (!tools || refresh || (!toolsFound && Date.now() - toolsAt > 60000)) {
-      toolsAt = Date.now()
-      tools = findToolchain()
-        .catch((): Toolchain => ({ bin: {}, postscript: false, distribution: 'TeX' }))
-        .then((t) => {
-          toolsFound = !!(t.bin.latex || t.bin.xelatex || t.bin.lualatex)
-          return t
-        })
-    }
-    return tools
-  }
+  const toolchain = (refresh = false) => toolchains.get(refresh)
 
   function remember(text: string): string {
     const key = sha256(text)
@@ -149,16 +138,6 @@ export function registerPictures(orca: OrcaWorkerApi, place: (location: TexLocat
     return { complete: true }
   })
 
-  /** The root document of a section file, found at most every few seconds per file. */
-  function rootOf(realRoot: string, file: string, head: string) {
-    const key = `${file}\0${sha256(head)}`
-    const hit = roots.get(key)
-    if (hit && Date.now() - hit.at < ROOT_TTL_MS) return hit.value
-    const value = findRoot(realRoot, file, head).then((root) => (root ? { preamble: root.preamble, text: root.text, dir: path.dirname(root.file) } : null))
-    roots.set(key, { at: Date.now(), value })
-    if (roots.size > 64) roots.delete(roots.keys().next().value as string)
-    return value
-  }
 
   orca.panels.handle('picture.render', async (input, context): Promise<PictureAnswer> => {
     if (typeof input !== 'object' || input === null) fail('invalid_params', 'expected an object')
@@ -203,11 +182,11 @@ export function registerPictures(orca: OrcaWorkerApi, place: (location: TexLocat
       const realDir = await fs.realpath(where.texDir).catch(() => null)
       if (realDir && inside(where.realRoot, realDir)) {
         if (!preamble) {
-          const root = await rootOf(where.realRoot, path.join(realDir, location.file), head)
+          const root = await roots.find(where.realRoot, path.join(realDir, location.file), head)
           if (root) {
             preamble = root.preamble
             engineText = magicEngine(head) ? head : root.text
-            texInputs.push(root.dir)
+            texInputs.push(path.dirname(root.file))
           }
         }
         if (!texInputs.includes(realDir)) texInputs.push(realDir)

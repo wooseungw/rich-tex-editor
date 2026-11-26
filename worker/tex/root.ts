@@ -28,7 +28,7 @@ export function preambleOf(text: string): string {
 const inside = (root: string, file: string) => file === root || file.startsWith(root + path.sep)
 
 /** A small text file, read only when it really is inside the workspace (links resolved). */
-async function readSmall(realRoot: string, file: string): Promise<string | null> {
+export async function readSmall(realRoot: string, file: string): Promise<string | null> {
   const real = await fs.realpath(file).catch(() => null)
   if (!real || !inside(realRoot, real)) return null
   const stat = await fs.stat(real).catch(() => null)
@@ -136,4 +136,56 @@ export async function findLatexmkrc(realRoot: string, dir: string): Promise<stri
     if (d === realRoot) break
   }
   return null
+}
+
+/** The folders of `\graphicspath{{a/}{b/}}`, as written (relative to the root document's folder). */
+export function graphicsPathOf(preamble: string): string[] {
+  const out: string[] = []
+  for (const m of stripComments(preamble).matchAll(/\\graphicspath\s*\{((?:\s*\{[^{}]*\})*)\s*\}/g)) {
+    for (const g of m[1].matchAll(/\{([^{}]*)\}/g)) if (g[1].trim()) out.push(g[1].trim())
+  }
+  return out
+}
+
+/**
+ * Root documents found recently, shared by pictures and images: a burst of requests from one
+ * document searches its folders once. Answers (a miss too) are kept a few seconds.
+ */
+export class RootFinder {
+  private readonly found = new Map<string, { at: number; value: Promise<RootDocument | null> }>()
+
+  constructor(private readonly ttlMs = 5000) {}
+
+  find(realRoot: string, file: string, head: string): Promise<RootDocument | null> {
+    const key = `${realRoot}\0${file}\0${head.slice(0, 4096)}`
+    const hit = this.found.get(key)
+    if (hit && Date.now() - hit.at < this.ttlMs) return hit.value
+    const value = findRoot(realRoot, file, head).catch(() => null)
+    this.found.set(key, { at: Date.now(), value })
+    if (this.found.size > 64) this.found.delete(this.found.keys().next().value as string)
+    return value
+  }
+}
+
+/**
+ * The \graphicspath folders a root document sets: in its preamble, and one level into the files
+ * the preamble reads from its own folder (`\input{setup}`, a local `mystyle.sty`), where papers
+ * often keep it. Files are read only inside the workspace.
+ */
+export async function preambleGraphicsPaths(realRoot: string, rootDir: string, preamble: string): Promise<string[]> {
+  const out = graphicsPathOf(preamble)
+  const text = stripComments(preamble)
+  const files: string[] = []
+  for (const m of text.matchAll(/\\(?:input|include)\s*\{([^}]+)\}/g)) {
+    const name = m[1].trim()
+    files.push(path.resolve(rootDir, /\.[A-Za-z]+$/.test(name) ? name : `${name}.tex`))
+  }
+  for (const m of text.matchAll(/\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\]\s*)?\{([^}]+)\}/g)) {
+    for (const name of m[1].split(',')) if (name.trim()) files.push(path.resolve(rootDir, `${name.trim()}.sty`))
+  }
+  for (const file of files.slice(0, 32)) {
+    const content = await readSmall(realRoot, file)
+    if (content) out.push(...graphicsPathOf(content))
+  }
+  return out
 }

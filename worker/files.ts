@@ -199,7 +199,8 @@ export async function findImage(
   graphicsPath: string[]
 ): Promise<FoundImage | null> {
   const folders = [texDir, ...graphicsPath.map((folder) => path.resolve(texDir, folder))]
-  const names = imageExtension(ref) ? [ref] : IMAGE_EXTENSIONS.map((ext) => `${ref}.${ext}`)
+  // As graphicx: the extension given, or each known one in lower then upper case (`plot.PNG`).
+  const names = imageExtension(ref) ? [ref] : [...IMAGE_EXTENSIONS.map((ext) => `${ref}.${ext}`), ...IMAGE_EXTENSIONS.map((ext) => `${ref}.${ext.toUpperCase()}`)]
   for (const folder of folders) {
     for (const name of names) {
       const candidate = path.resolve(folder, name)

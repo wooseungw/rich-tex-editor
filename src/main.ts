@@ -91,6 +91,8 @@ async function main(): Promise<void> {
   // Pictures only TeX can draw, drawn by the person's TeX through the worker.
   const pictures = new PictureStore(images)
   pictures.setEnabled(readPref('pictures') !== 'off')
+  // PDF figures are drawn by the same tools, under the same switch.
+  images.drawPdf = () => pictures.enabled
   const recheckImages = () => {
     if (document.visibilityState !== 'visible') return
     void images.revalidate()
@@ -239,6 +241,7 @@ async function main(): Promise<void> {
     setPictures: (on) => {
       writePref('pictures', on ? 'on' : 'off')
       pictures.setEnabled(on)
+      images.reload()
       if (mode === 'split') renderNow()
     }
   })

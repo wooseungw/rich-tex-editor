@@ -25,12 +25,19 @@ import {
   writeUnique
 } from './files'
 import { registerPictures } from './pictures'
+import { PdfDrawings } from './tex/pdf'
+import { preambleGraphicsPaths, preambleOf, readSmall, RootFinder } from './tex/root'
+import { ToolchainCache } from './tex/tools'
+import { documentClass } from './tex/engine'
 
 const UPLOAD_IDLE_MS = 2 * 60 * 1000
 const MAX_UPLOADS = 8
 const MAX_GRAPHICS_PATHS = 32
 /** `workspace.list` answers are reused this long, so a burst of image reads makes one call. */
 const LIST_TTL_MS = 2000
+/** How long a found image and a section file's image folders are reused: the editor asks about
+ *  every image every few seconds, and a search can touch hundreds of paths. */
+const FOUND_TTL_MS = 10000
 
 /** Where a request's files go: the workspace root (as listed and resolved) and the .tex folder. */
 interface Place {
@@ -135,8 +142,14 @@ export default function activate(orca: OrcaWorkerApi) {
     return found
   }
 
+  // Section files (\input into a main document) read images and pictures from that document's
+  // folder, as LaTeX does: both kinds of request find it through one cache.
+  const roots = new RootFinder()
+  const toolchains = new ToolchainCache()
+  const pdfs = new PdfDrawings(() => toolchains.get())
+
   // Pictures only TeX can draw (TikZ, pgfplots, tikz-cd…), drawn with the person's TeX.
-  registerPictures(orca, (location) => place(location))
+  registerPictures(orca, (location) => place(location), roots, toolchains)
 
   orca.panels.handle('tex.locate', async (input) => {
     const { sha256, bytes } = fields(input)
@@ -226,16 +239,70 @@ export default function activate(orca: OrcaWorkerApi) {
   })
 
   /** The image a document's `ref` names, looked up as `image.read` and `image.stat` describe. */
+  const foundImages = new Map<string, { at: number; image: NonNullable<Awaited<ReturnType<typeof findImage>>> }>()
+  const sectionFolders = new Map<string, { at: number; value: Promise<{ rootDir: string; folders: string[] } | null> }>()
+
   async function lookUp(input: { location?: TexLocation | null; ref?: unknown; graphicsPath?: unknown }) {
     const { location, ref, graphicsPath = [] } = input
     if (typeof ref !== 'string' || ref === '' || ref.includes('\0')) fail('invalid_params', 'ref must be a path')
     if (!Array.isArray(graphicsPath)) fail('invalid_params', 'graphicsPath must be a list')
+    if (location && (typeof location.file !== 'string' || !/^[^/\\\0]+$/.test(location.file) || location.file === '..')) {
+      fail('invalid_location', 'file must be a file name')
+    }
     const where = await place(location)
     if (!where) return null
     const folders = graphicsPath
       .filter((folder): folder is string => typeof folder === 'string' && !folder.includes('\0'))
       .slice(0, MAX_GRAPHICS_PATHS)
-    return findImage(where.realRoot, where.texDir, ref, folders)
+    // Found a moment ago and still there: no new search (the file's own size and time are read
+    // fresh by the caller, so a redrawn figure is still noticed).
+    const key = JSON.stringify([where.realRoot, where.texDir, location?.file ?? null, ref, folders])
+    const known = foundImages.get(key)
+    if (known && Date.now() - known.at < FOUND_TTL_MS && (await fs.stat(known.image.file).then((s) => s.isFile(), () => false))) return known.image
+    foundImages.delete(key)
+    const image = await search(where, location ?? null, ref, folders)
+    if (image) {
+      foundImages.set(key, { at: Date.now(), image })
+      if (foundImages.size > 512) foundImages.delete(foundImages.keys().next().value as string)
+    }
+    return image
+  }
+
+  async function search(where: Place, location: TexLocation | null, ref: string, folders: string[]) {
+    const here = await findImage(where.realRoot, where.texDir, ref, folders)
+    if (here || !location) return here
+    const found = await rootFolders(where, location)
+    if (!found) return null
+    return findImage(where.realRoot, found.rootDir, ref, [...found.folders, ...folders].slice(0, MAX_GRAPHICS_PATHS))
+  }
+
+  /** Where a section file's images are looked for as LaTeX does: its root document's folder and
+   *  \graphicspath. Kept a few seconds per file. */
+  function rootFolders(where: Place, location: TexLocation) {
+    const key = `${where.realRoot}\0${where.texDir}\0${location.file}`
+    const hit = sectionFolders.get(key)
+    if (hit && Date.now() - hit.at < FOUND_TTL_MS) return hit.value
+    const value = findRootFolders(where, location).catch(() => null)
+    sectionFolders.set(key, { at: Date.now(), value })
+    if (sectionFolders.size > 64) sectionFolders.delete(sectionFolders.keys().next().value as string)
+    return value
+  }
+
+  async function findRootFolders(where: Place, location: TexLocation) {
+    const realDir = await fs.realpath(where.texDir).catch(() => null)
+    if (!realDir) return null
+    const file = path.join(realDir, location.file)
+    const text = (await readSmall(where.realRoot, file)) ?? ''
+    const root = await roots.find(where.realRoot, file, text.slice(0, 4096))
+    // Not a section file: its own preamble may still set \graphicspath in a file it \input's.
+    let rootDir = realDir
+    let preamble = ''
+    if (root) {
+      rootDir = path.dirname(root.file)
+      preamble = root.preamble
+    } else if (documentClass(text)) preamble = preambleOf(text)
+    if (!preamble) return null
+    return { rootDir, folders: await preambleGraphicsPaths(where.realRoot, rootDir, preamble) }
   }
 
   /** The image opened for reading, with what it is now; null when it cannot be read. `image.stat`
@@ -258,13 +325,31 @@ export default function activate(orca: OrcaWorkerApi) {
   })
 
   orca.panels.handle('image.read', async (input) => {
-    const { offset, ...rest } = fields(input)
+    const { offset, drawPdf, ...rest } = fields(input)
     if (!isCount(offset)) fail('invalid_params', 'offset must be a byte offset')
     const image = await lookUp(rest)
     const opened = image && (await open(image.file))
     if (!image || !opened) return NOT_FOUND
     const { handle, stat } = opened
     try {
+      // A PDF figure drawn as SVG (page 1), when this computer has a PDF converter. Size and time
+      // stay the PDF's, so the editor's checks for a redrawn file still compare like with like.
+      if (image.mime === 'application/pdf' && drawPdf === true) {
+        const svg = await pdfs.svg(image.file, stat)
+        if (svg) {
+          if (offset > svg.length) fail('invalid_params', `offset is past the end (${svg.length} bytes)`)
+          const end = Math.min(svg.length, offset + READ_CHUNK_BYTES)
+          return {
+            found: true as const,
+            path: image.path,
+            mime: 'image/svg+xml',
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            data: svg.subarray(offset, end).toString('base64'),
+            next: end < svg.length ? end : null
+          }
+        }
+      }
       if (offset > stat.size) fail('invalid_params', `offset is past the end (${stat.size} bytes)`)
       // The editor does not draw PDFs: knowing where one is is enough.
       const wanted = image.mime === 'application/pdf' ? 0 : stat.size - offset

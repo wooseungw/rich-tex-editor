@@ -102,7 +102,7 @@ async function folderBytes(dir: string): Promise<number> {
 
 /** Runs a program in `cwd`, killing it (and anything it started) on timeout, abort, or when it
  *  writes too much. */
-function run(program: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal): Promise<Run> {
+export function run(program: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal): Promise<Run> {
   return new Promise((resolve) => {
     if (signal?.aborted || timeoutMs <= 0) return resolve({ code: null, timedOut: timeoutMs <= 0, cancelled: !!signal?.aborted, tooLarge: false })
     const posix = process.platform !== 'win32'
