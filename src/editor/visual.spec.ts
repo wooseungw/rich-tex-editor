@@ -322,3 +322,103 @@ test('with boundary markers on, environments show where they begin and end', () 
   // \centering is layout, not an environment: it still folds.
   assert.equal(folded, 1)
 })
+
+// ----- pictures drawn by the person's TeX -----------------------------------------------------
+
+import { pictureRenderer, pictureSpecs, type PictureRenderer, type PictureView, type ShownPicture } from './picture-spec'
+import { PictureWidget } from './widgets'
+
+const shown: ShownPicture = { key: 'k', url: 'blob:x', length: 10, width: 40, height: 20, depth: 5, fontSize: 10, label: 'pdfLaTeX', notes: [], wantsLua: false }
+
+/** Decorations with a renderer that answers `answer` for every picture. */
+function withPictures(docWithCursor: string, answer: PictureView) {
+  const at = docWithCursor.indexOf('|')
+  const doc = docWithCursor.replace('|', '')
+  const asked: string[] = []
+  const renderer: PictureRenderer = {
+    generation: 0,
+    view: (spec) => {
+      asked.push(spec.snippet)
+      return answer
+    },
+    redraw: () => undefined,
+    scale: () => 1,
+    canAllowLua: () => false,
+    allowLua: () => undefined
+  }
+  const state = EditorState.create({
+    doc,
+    selection: EditorSelection.cursor(at < 0 ? doc.length : at),
+    extensions: [analysisField, focusTracking, pictureRenderer.of(renderer)]
+  }).update({ effects: focusedForTest(true) }).state
+  const seen: Seen[] = []
+  visualDecorationsFor(state).between(0, doc.length, (from, to, value: Decoration) => {
+    const spec = value.spec as { widget?: unknown; class?: string; block?: boolean }
+    const kind = from === to && !spec.widget && spec.class !== undefined ? 'line' : value.point ? (from === to ? 'widget' : 'replace') : 'mark'
+    seen.push({ from, to, kind: spec.widget && from === to ? 'widget' : kind, cls: spec.class ?? '', widget: spec.widget, block: !!spec.block })
+  })
+  return { doc, seen, asked, state }
+}
+
+const PIC = '\\begin{tikzpicture}\n\\draw (0,0) -- (1,1);\n\\end{tikzpicture}'
+
+test('a drawn picture replaces its lines; with the cursor in it the code shows above the drawing', () => {
+  const away = withPictures(`|Text\n${PIC}\nAfter`, { state: 'drawn', picture: shown })
+  const widget = away.seen.find((s) => s.widget instanceof PictureWidget)
+  assert.ok(widget)
+  assert.equal(widget.block, true)
+  assert.equal(away.doc.slice(widget.from, widget.to), PIC)
+  assert.equal((widget.widget as PictureWidget).placement, 'block')
+  assert.deepEqual(away.asked, [PIC])
+
+  const inside = withPictures(`Text\n\\begin{tikz|picture}\n\\draw (0,0) -- (1,1);\n\\end{tikzpicture}\nAfter`, { state: 'drawn', picture: shown })
+  const under = inside.seen.find((s) => s.widget instanceof PictureWidget)
+  assert.ok(under)
+  assert.equal((under.widget as PictureWidget).placement, 'preview')
+  assert.equal(under.from, inside.doc.indexOf('\\end{tikzpicture}') + '\\end{tikzpicture}'.length)
+  assert.equal(inside.seen.filter((s) => s.kind === 'line' && s.cls === 'cm-rt-code-line').length, 3)
+})
+
+test('a picture not drawn yet shows its code and why', () => {
+  const pending = withPictures(`|x\n${PIC}`, { state: 'pending', previous: null })
+  const status = pending.seen.find((s) => s.widget instanceof PictureWidget)
+  assert.equal((status?.widget as PictureWidget).placement, 'status')
+  assert.equal(pending.seen.filter((s) => s.cls === 'cm-rt-code-line').length, 3)
+  // Its last drawing stays while the new one is made.
+  const redrawing = withPictures(`|x\n${PIC}`, { state: 'pending', previous: shown })
+  assert.equal((redrawing.seen.find((s) => s.widget instanceof PictureWidget)?.widget as PictureWidget).placement, 'block')
+  const off = withPictures(`|x\n${PIC}`, { state: 'off', message: null })
+  assert.ok(!off.seen.some((s) => s.widget instanceof PictureWidget), 'turned off: just the code')
+  assert.equal(off.seen.filter((s) => s.cls === 'cm-rt-code-line').length, 3)
+})
+
+test('inline pictures, scaling boxes and diagrams in math are pictures too', () => {
+  const inline = withPictures('|A dot \\tikz \\fill (0,0) circle (1pt); here.', { state: 'drawn', picture: shown })
+  const dot = inline.seen.find((s) => s.widget instanceof PictureWidget)
+  assert.ok(dot)
+  assert.equal(inline.doc.slice(dot.from, dot.to), '\\tikz \\fill (0,0) circle (1pt);')
+  assert.equal((dot.widget as PictureWidget).placement, 'inline')
+  const boxed = withPictures(`|x\n\\resizebox{\\linewidth}{!}{%\n${PIC}}\ny`, { state: 'drawn', picture: shown })
+  const box = boxed.seen.find((s) => s.widget instanceof PictureWidget)
+  assert.ok(box)
+  assert.equal(boxed.doc.slice(box.from, box.to), `\\resizebox{\\linewidth}{!}{%\n${PIC}}`)
+  const xy = withPictures('|x\n\\[\n\\xymatrix{A \\ar[r] & B}\n\\]\ny', { state: 'drawn', picture: shown })
+  assert.deepEqual(xy.asked, ['\n\\xymatrix{A \\ar[r] & B}\n'])
+  assert.ok(!xy.seen.some((s) => s.widget instanceof MathWidget), 'KaTeX is not asked to draw it')
+  const align = withPictures('|x\n\\begin{align}\n\\xymatrix{A} & x\n\\end{align}', { state: 'drawn', picture: shown })
+  assert.deepEqual(align.asked, ['\\begin{aligned}\n\\xymatrix{A} & x\n\\end{aligned}'])
+  const specs = pictureSpecs(align.state.field(analysisField).scan, align.doc)
+  assert.equal(specs[0].mode, 'display-math')
+})
+
+test('a picture in a file of its own (\\input{plot.pgf}) is drawn; other inputs stay chips', () => {
+  const pgf = withPictures('|x\n\\input{figures/loss.pgf}\ny', { state: 'drawn', picture: shown })
+  const w = pgf.seen.find((s) => s.widget instanceof PictureWidget)
+  assert.ok(w)
+  assert.equal(pgf.doc.slice(w.from, w.to), '\\input{figures/loss.pgf}')
+  assert.deepEqual(pgf.asked, ['\\input{figures/loss.pgf}'])
+  const include = withPictures('|x\n\\include{fig.tikz}\ny', { state: 'drawn', picture: shown })
+  assert.deepEqual(include.asked, ['\\input{fig.tikz}'], '\\include would start a page: drawn as \\input')
+  const chapter = withPictures('|x\n\\input{chapters/one}\ny', { state: 'drawn', picture: shown })
+  assert.deepEqual(chapter.asked, [])
+})

@@ -876,3 +876,39 @@ mark.rt-hl {
 .dark .rt-graphic-img {
   background: #ffffff;
 }
+
+/* ---- pictures drawn by the person's TeX (the editor swaps them in by data-pic) --------------- */
+
+.rt-graphic.rt-picture-loaded {
+  display: inline-block;
+  width: auto;
+  min-height: 0;
+  aspect-ratio: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+}
+.rt-picture-img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+  transition: opacity 0.2s;
+}
+.dark .rt-picture-img {
+  background: #ffffff;
+  border-radius: 2px;
+}
+.rt-picture-img.rt-picture-stale {
+  opacity: 0.45;
+}
+.rt-graphic.rt-picture-pending:not(.rt-picture-loaded) .rt-graphic-name {
+  opacity: 0.8;
+}
+.rt-graphic.rt-picture-failed:not(.rt-picture-loaded) {
+  border-color: color-mix(in srgb, var(--orca-destructive, #dc2626) 55%, transparent);
+  color: var(--orca-destructive, #dc2626);
+}
+.rt-math-picture {
+  text-align: center;
+}

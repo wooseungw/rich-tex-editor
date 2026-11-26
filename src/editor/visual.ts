@@ -16,6 +16,7 @@ import { plainText, todayText } from '../latex/scan'
 import { type Analysis, analysisField } from './analysis'
 import { renderFragment } from './fragment'
 import { imageLoader, refreshImages } from './image-loader'
+import { headOf, needsTex, pictureAt, pictureRenderer, refreshPictures, TEX_PICTURES } from './picture-spec'
 import { renderMath } from './math-render'
 import {
   BoundaryWidget,
@@ -23,6 +24,7 @@ import {
   ImageWidget,
   LogoWidget,
   MathWidget,
+  PictureWidget,
   PreambleWidget,
   TableWidget,
   TextWidget,
@@ -51,6 +53,7 @@ const comment = Decoration.mark({ class: 'cm-rt-comment' })
 const monoMark = Decoration.mark({ class: 'cm-rt-mono' })
 const preambleLine = Decoration.line({ class: 'cm-rt-preamble' })
 const codeLine = Decoration.line({ class: 'cm-rt-code-line' })
+const pictureSource = Decoration.mark({ class: 'cm-rt-picture-source' })
 const foldedLine = Decoration.line({ class: 'cm-rt-folded' })
 const captionLine = Decoration.line({ class: 'cm-rt-caption-line' })
 const quietSource = Decoration.mark({ class: 'cm-rt-quiet' })
@@ -356,6 +359,10 @@ function decorate(
   const doc = state.doc
   switch (c.kind) {
     case 'math': {
+      if (needsTex(doc.sliceString(c.bodyFrom, c.bodyTo))) {
+        const done = decoratePicture(c, c.bodyFrom, a, state, reveal, sink, () => sink.add(mathSource.range(c.from, c.to)))
+        if (done !== null) return done
+      }
       const prepared = a.math.get(c)
       if (!prepared) return -1
       const block = c.display && ownsLines(doc, c.from, c.to)
@@ -379,6 +386,10 @@ function decorate(
     case 'format':
       return decorateFormat(c, state, reveal, sink)
     case 'ref': {
+      if (c.cmd === 'input' || c.cmd === 'include') {
+        const done = decoratePicture(c, c.from + 1, a, state, reveal, sink, (from, to) => sink.add(quietSource.range(from, to)))
+        if (done !== null) return done
+      }
       if (c.cmd === 'label' || c.cmd === 'input' || c.cmd === 'include') {
         sink.add(quietSource.range(c.from, c.to))
         return c.to
@@ -466,12 +477,87 @@ function decorate(
         }
         return -1
       }
-      const first = doc.lineAt(c.from).number
-      const last = doc.lineAt(c.to).number
-      for (let n = first; n <= last; n++) sink.add(codeLine.range(doc.line(n).from))
+      const codeLines = (from: number, to: number) => {
+        const first = doc.lineAt(from).number
+        const last = doc.lineAt(to).number
+        for (let n = first; n <= last; n++) sink.add(codeLine.range(doc.line(n).from))
+      }
+      if (TEX_PICTURES.has(c.env)) {
+        const done = decoratePicture(c, c.from + 7, a, state, reveal, sink, (from, to) => codeLines(from, to))
+        if (done !== null) return done
+      }
+      codeLines(c.from, c.to)
       return -1
     }
+    case 'picture': {
+      const done = decoratePicture(c, c.from + 1, a, state, reveal, sink, (from, to) => sink.add(pictureSource.range(from, to)))
+      if (done === null) sink.add(pictureSource.range(c.from, c.to))
+      return done ?? -1
+    }
   }
+}
+
+/** The document's text, made once per version of it (pictures need slices of the whole). */
+const docTexts = new WeakMap<Text, string>()
+function textOf(doc: Text): string {
+  let text = docTexts.get(doc)
+  if (text === undefined) {
+    text = doc.toString()
+    docTexts.set(doc, text)
+  }
+  return text
+}
+
+/**
+ * A picture only TeX can draw, drawn by the person's TeX through the worker. Away from the cursor
+ * the drawing replaces the source (its last drawing while a new one is made); with the cursor in
+ * it the source shows with the drawing under it. Until there is a drawing, the source shows with
+ * a line saying it is being drawn, or why it could not be. Answers null when nothing draws
+ * pictures, so the caller shows the source as before.
+ */
+function decoratePicture(
+  c: Construct,
+  revealAt: number,
+  a: Analysis,
+  state: EditorState,
+  reveal: Reveal,
+  sink: Sink,
+  showSource: (from: number, to: number) => void
+): number | null {
+  const renderer = state.facet(pictureRenderer)
+  if (!renderer) return null
+  const doc = state.doc
+  const text = textOf(doc)
+  const spec = pictureAt(a.scan, text, c.from)
+  if (!spec) return null
+  const head = headOf(text, a.scan.documentStart)
+  const view = renderer.view(spec, head)
+  const blockish = spec.mode === 'block' || spec.mode === 'display-math'
+  const block = blockish && ownsLines(doc, spec.from, spec.to)
+  const firstLine = doc.lineAt(spec.from)
+  const lastLine = doc.lineAt(spec.to)
+  const from = block ? firstLine.from : spec.from
+  const to = block ? lastLine.to : spec.to
+  const lineStarts: number[] = []
+  for (let n = firstLine.number; n <= lastLine.number && lineStarts.length < 2000; n++) lineStarts.push(doc.line(n).from)
+  const retry = () => renderer.redraw(spec, head)
+  const editing = reveal.inside(from, to)
+  const drawing = view.state === 'drawn' ? view.picture : view.state === 'pending' || view.state === 'failed' ? view.previous : null
+  if (!editing && drawing && view.state !== 'off') {
+    const widget = new PictureWidget(view, block ? 'block' : 'inline', Math.max(0, revealAt - from), lineStarts, retry)
+    sink.replace(Decoration.replace({ widget, block }), from, to)
+    return to
+  }
+  showSource(spec.from, spec.to)
+  const quiet = view.state === 'off' && !view.message
+  if (blockish && !quiet) {
+    const placement = editing && view.state !== 'off' ? 'preview' : 'status'
+    const widget = new PictureWidget(view, placement, 0, lineStarts, retry)
+    sink.add(Decoration.widget({ widget, block: true, side: 1 }).range(lastLine.to))
+  } else if (view.state === 'failed' && !editing) {
+    sink.add(Decoration.mark({ class: 'cm-rt-picture-source-error', attributes: { title: view.error.message } }).range(spec.from, spec.to))
+  }
+  return -1
 }
 
 /** Headings are edited in place: the command stays hidden, the number shows before the title. */
@@ -586,7 +672,7 @@ const visualField = StateField.define<Built>({
   update: (value, tr) =>
     tr.docChanged ||
     tr.selection ||
-    tr.effects.some((e) => e.is(setFocus) || e.is(refreshImages)) ||
+    tr.effects.some((e) => e.is(setFocus) || e.is(refreshImages) || e.is(refreshPictures)) ||
     tr.startState.facet(boundaryMarkers) !== tr.state.facet(boundaryMarkers)
       ? buildDecorations(tr.state)
       : value,

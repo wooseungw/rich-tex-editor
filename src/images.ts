@@ -94,6 +94,16 @@ export class ImageStore implements ImageLoader {
   /** `text` gives the document as it is now; it identifies the file on disk. */
   constructor(private readonly text: () => string) {}
 
+  /** Where the file was found on disk, or null (not yet, unsaved edits, or another host). */
+  locationNow(): TexLocation | null {
+    return this.location
+  }
+
+  /** The `\graphicspath` folders as last set. */
+  graphicsPathNow(): string[] {
+    return this.graphicsPath
+  }
+
   setGraphicsPath(paths: string[]): void {
     if (paths.join('\u0000') === this.graphicsPath.join('\u0000')) return
     this.graphicsPath = paths

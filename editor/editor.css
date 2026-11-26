@@ -1042,3 +1042,123 @@ html.dark .cm-rt-image img {
 .cm-rt-boundary:hover {
   opacity: 1;
 }
+
+/* ---- pictures drawn by the person's TeX (TikZ, pgfplots, tikz-cd, xy-pic…) ------------------ */
+
+.cm-rt-picture-block {
+  display: block;
+  padding: 6px 0;
+  border-radius: var(--rt-radius);
+  text-align: center;
+  cursor: pointer;
+}
+.cm-rt-picture-block:hover {
+  background: color-mix(in srgb, var(--rt-link) 6%, transparent);
+}
+.cm-rt-picture-inline {
+  cursor: pointer;
+}
+.cm-rt-picture-img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+  transition: opacity 0.2s;
+}
+.cm-rt-picture-block .cm-rt-picture-img,
+.cm-rt-picture-preview .cm-rt-picture-img {
+  display: inline-block;
+}
+html.dark .cm-rt-picture-img {
+  background: #ffffff;
+  border-radius: 2px;
+}
+.cm-rt-picture-stale {
+  opacity: 0.45;
+}
+.cm-rt-picture-preview {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-left: 2px solid color-mix(in srgb, var(--rt-link) 45%, transparent);
+  border-radius: 0 var(--rt-radius) var(--rt-radius) 0;
+  background: color-mix(in srgb, var(--orca-muted) 55%, transparent);
+  text-align: center;
+}
+.cm-rt-picture-status {
+  margin: 2px 0 8px;
+}
+.cm-rt-picture-note {
+  margin-top: 4px;
+  font: 12px/1.45 var(--rt-ui-font);
+  color: var(--orca-muted-foreground);
+  text-align: left;
+}
+.cm-rt-picture-working::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: rt-spin 0.8s linear infinite;
+}
+@keyframes rt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cm-rt-picture-error {
+  padding: 6px 10px;
+  border-radius: var(--rt-radius);
+  background: color-mix(in srgb, var(--orca-destructive, #dc2626) 9%, transparent);
+  color: var(--orca-foreground);
+}
+.cm-rt-picture-where {
+  color: var(--orca-destructive, #dc2626);
+  font-weight: 600;
+}
+.cm-rt-picture-where a {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cm-rt-picture-context {
+  display: block;
+  margin-top: 3px;
+  font: 12px/1.4 var(--rt-mono-font);
+  color: var(--orca-muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cm-rt-picture-notes {
+  margin-top: 3px;
+  color: var(--orca-muted-foreground);
+}
+.cm-rt-picture-retry {
+  margin-top: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--orca-border);
+  border-radius: calc(var(--rt-radius) - 2px);
+  background: var(--orca-background);
+  color: var(--orca-foreground);
+  font: 12px var(--rt-ui-font);
+  cursor: pointer;
+}
+.cm-rt-picture-retry:hover {
+  background: var(--orca-muted);
+}
+.cm-rt-picture-caption {
+  margin-top: 2px;
+  font: 11px/1.4 var(--rt-ui-font);
+  color: var(--orca-muted-foreground);
+}
+.cm-rt-visual .cm-rt-picture-source {
+  font-family: var(--rt-mono-font);
+  font-size: 0.8em;
+}
+.cm-rt-picture-source-error {
+  text-decoration: wavy underline var(--orca-destructive, #dc2626);
+  text-decoration-skip-ink: none;
+}

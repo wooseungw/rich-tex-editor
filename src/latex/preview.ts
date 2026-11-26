@@ -10,6 +10,7 @@
  */
 import { extractMacros, type MacroMap } from './macros'
 import { DISPLAY_MATH_ENVS, prepareMath, type PreparedMath } from './math'
+import { needsTex, PICTURE_FILE, TEX_PICTURES } from './scan'
 
 export interface PreviewOptions {
   /** Returns HTML for one formula. May throw a KaTeX ParseError; it is shown inline. */
@@ -412,8 +413,8 @@ const VERBATIMS = new Set([
   'lstinputlisting'
 ])
 const PICTURES = new Set([
-  'tikzpicture', 'pgfpicture', 'circuitikz', 'forest', 'picture', 'pspicture', 'asy', 'tikzcd', 'dot2tex',
-  'gnuplot', 'pythontex'
+  'tikzpicture', 'pgfpicture', 'circuitikz', 'forest', 'picture', 'pspicture', 'pspicture*', 'xy', 'asy', 'tikzcd',
+  'dot2tex', 'gnuplot', 'pythontex'
 ])
 const QUOTES = new Set(['quote', 'quotation', 'verse'])
 
@@ -596,9 +597,13 @@ class Renderer {
   private quoteDepth = 0
   private readonly nextEq = (): number => ++this.eq
 
+  /** The document as given: offsets into it mark pictures (text from macro expansions has none). */
+  private readonly original: string
+
   constructor(source: string, private readonly opts: PreviewOptions) {
     this.expansionBudget = Math.max(200_000, source.length * 4)
     this.s = source
+    this.original = source
     for (let i = source.indexOf('\n'); i !== -1; i = source.indexOf('\n', i + 1)) this.lineStarts.push(i + 1)
     this.macros = extractMacros(source)
     this.katexMacros = { ...COMPAT_MACROS, ...this.macros }
@@ -1501,9 +1506,19 @@ class Renderer {
           const semi = this.s.indexOf(';', this.pos)
           this.pos = semi === -1 || semi >= end ? end : semi + 1
         }
-        this.put(sink, '<span class="rt-graphic rt-picture rt-graphic-inline"><span class="rt-graphic-name">TikZ</span></span>')
-        this.inWord = false
+        this.picturePlaceholder(sink, start, 'TikZ', true, true)
         return null
+      case 'xymatrix': {
+        // Spacing options (`@C=1em`, `@R-1pc`) come before the matrix.
+        while (this.s.charCodeAt(this.pos) === 64) {
+          const m = /^@(?:[!*]?[A-Za-z]?[=+-]?(?:\[[^\]]*\]|[-\d.]+(?:em|ex|pt|pc|mm|cm|in)?)?)?/.exec(this.s.slice(this.pos, this.pos + 40))
+          if (!m || !m[0]) break
+          this.pos += m[0].length
+        }
+        if (this.s.charCodeAt(this.pos) === 123) this.readArg(end, true, true)
+        this.picturePlaceholder(sink, start, 'Diagram', true, true)
+        return null
+      }
       case 'enquote':
       case 'textquote': {
         this.star(end)
@@ -2072,6 +2087,8 @@ class Renderer {
       this.readArg(end)
     } else this.readOpt(end)
     const file = this.raw(this.readArg(end)).trim()
+    // A picture in a file of its own (`figures/plot.pgf` from matplotlib, `diagram.tikz`): drawn.
+    if ((name === 'input' || name === 'include') && PICTURE_FILE.test(file)) return this.picturePlaceholder(sink, start, file, false, true)
     this.block(sink, `<div class="rt-input" data-line="${this.lineAt(start)}"><span class="rt-input-label">Included file</span> <code>${esc(file)}</code></div>`)
   }
 
@@ -2127,7 +2144,8 @@ class Renderer {
     const body = s.slice(from, close.at)
     this.pos = close.ok ? close.at + (display ? 2 : 1) : close.at
     const raw = s.slice(start, this.pos)
-    if (display) this.displayMath(sink, null, body, raw, start)
+    if (needsTex(body)) this.mathPicture(sink, null, body, start, display)
+    else if (display) this.displayMath(sink, null, body, raw, start)
     else this.inlineMath(sink, body, raw)
   }
 
@@ -2137,8 +2155,33 @@ class Renderer {
     const body = this.s.slice(from, close.at)
     this.pos = close.ok ? close.at + 2 : close.at
     const raw = this.s.slice(start, this.pos)
-    if (display) this.displayMath(sink, null, body, raw, start)
+    if (needsTex(body)) this.mathPicture(sink, null, body, start, display)
+    else if (display) this.displayMath(sink, null, body, raw, start)
     else this.inlineMath(sink, body, raw)
+  }
+
+  /**
+   * A place for a picture the person's TeX draws (the editor swaps in the drawing by `data-pic`,
+   * the source offset where it begins); a card naming it until then.
+   */
+  private picturePlaceholder(sink: Sink, start: number, label: string, inline: boolean, drawable: boolean): void {
+    // Inside a macro's expansion `start` is an offset into the expansion, not the document.
+    const pic = drawable && this.s === this.original ? ` data-pic="${start}"` : ''
+    const cls = `rt-graphic rt-picture${inline ? ' rt-graphic-inline' : ''}`
+    const icon = inline ? '' : '<span class="rt-graphic-icon" aria-hidden="true"></span>'
+    this.put(sink, `<span class="${cls}"${pic} data-line="${this.lineAt(start)}">${icon}<span class="rt-graphic-name">${esc(label)}</span></span>`)
+    this.inWord = false
+  }
+
+  /** Math with a commutative diagram (`\xymatrix`, tikz-cd): numbered and labelled as math, drawn by TeX. */
+  private mathPicture(sink: Sink, env: string | null, body: string, start: number, display: boolean): void {
+    const prepared = prepareMath({ env, body, display }, this.nextEq)
+    this.addMathLabels(prepared)
+    if (!display) return this.picturePlaceholder(sink, start, 'Diagram', true, true)
+    this.inWord = false
+    const mark = this.s === this.original ? ` data-pic="${start}"` : ''
+    const pic = `<span class="rt-graphic rt-picture"${mark} data-line="${this.lineAt(start)}"><span class="rt-graphic-icon" aria-hidden="true"></span><span class="rt-graphic-name">Diagram</span></span>`
+    this.block(sink, `<div class="rt-math-display rt-math-picture" data-line="${this.lineAt(start)}">${pic}</div>`, 'display')
   }
 
   private addMathLabels(prepared: PreparedMath): void {
@@ -2289,16 +2332,17 @@ class Renderer {
       const from = this.pos
       const found = this.findEnvEnd(name, from, end, true)
       this.pos = found.next
-      this.displayMath(sink, name, this.s.slice(from, found.bodyEnd), this.s.slice(start, found.next), start)
+      const body = this.s.slice(from, found.bodyEnd)
+      if (needsTex(body)) this.mathPicture(sink, name, body, start, true)
+      else this.displayMath(sink, name, body, this.s.slice(start, found.next), start)
       return
     }
     if (VERBATIMS.has(name)) return this.verbatim(sink, name, start, end)
     if (PICTURES.has(name)) {
       const found = this.findEnvEnd(name, this.pos, end, false)
       this.pos = found.next
-      const label = name === 'tikzcd' ? 'Commutative diagram' : name === 'forest' ? 'Tree' : 'TikZ picture'
-      this.put(sink, `<span class="rt-graphic rt-picture" data-line="${this.lineAt(start)}"><span class="rt-graphic-icon" aria-hidden="true"></span><span class="rt-graphic-name">${label}</span></span>`)
-      this.inWord = false
+      const label = name === 'tikzcd' ? 'Commutative diagram' : name === 'forest' ? 'Tree' : name === 'xy' ? 'Diagram' : name.startsWith('pspicture') ? 'PSTricks picture' : name === 'picture' ? 'Picture' : TEX_PICTURES.has(name) ? 'TikZ picture' : `${name} picture`
+      this.picturePlaceholder(sink, start, label, false, TEX_PICTURES.has(name))
       return
     }
     const listKind = LIST_KINDS[name]

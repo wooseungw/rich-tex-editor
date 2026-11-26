@@ -1,6 +1,7 @@
 \documentclass{article}
 \usepackage{graphicx}
 \usepackage{pgfplots}
+\usepackage{tikz-cd}
 \pgfplotsset{compat=1.18}
 \usetikzlibrary{positioning,arrows.meta}
 \graphicspath{{figures/}}
@@ -8,7 +9,7 @@
 \begin{document}
 
 \section{TikZ in the editor}
-The editor has no TeX engine, so it does not draw TikZ. A picture written in the document shows as code in the visual view and as a card in the preview, and still compiles as usual:
+Pictures only TeX can draw are drawn by your own TeX installation (TeX Live, MacTeX, MiKTeX), with this document's preamble and engine. Click a picture to edit its code; the drawing follows under it as you type. Without TeX on the computer, a picture shows as code:
 
 \begin{figure}[h]
   \centering
@@ -38,4 +39,13 @@ Compiled on its own (\verb|figures/loss.tex| with pdflatex, then made a PNG) and
 \end{figure}
 
 Figures~\ref{fig:loss} and~\ref{fig:pipeline} come from \verb|figures/*.tex|.
+
+\section{Diagrams and small pictures}
+Commutative diagrams draw in math, and a picture in a line of text sits on its baseline: a dot \tikz[baseline=-0.6ex] \fill[blue!60] (0,0) circle (0.7ex); here.
+\[
+\begin{tikzcd}
+A \arrow[r, "f"] \arrow[d, "g"'] & B \arrow[d, "h"] \\
+C \arrow[r, "k"'] & D
+\end{tikzcd}
+\]
 \end{document}

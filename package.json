@@ -1,6 +1,6 @@
 {
   "name": "rich-tex-editor",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
   "description": "Source for the Rich TeX Editor Orca plugin. `npm run build` bundles src/ into editor/app.js.",
   "license": "MIT",

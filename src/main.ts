@@ -2,9 +2,11 @@ import { snippet } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { analysisField } from './editor/analysis'
 import { imageLoader, refreshImages } from './editor/image-loader'
+import { headOf, pictureAt, pictureRenderer, refreshPictures, type PictureView, type ShownPicture } from './editor/picture-spec'
 import { renderMathOrThrow } from './editor/math-render'
 import { createEditor, type Mode, replaceText, setBoundaries, setMode, setReadOnly } from './editor/setup'
 import { ImageError, imageName, ImageStore, isImageFile } from './images'
+import { PictureStore } from './pictures'
 import { renderPreview } from './latex/preview'
 import { scan } from './latex/scan'
 import { start } from './sync'
@@ -86,8 +88,13 @@ async function main(): Promise<void> {
   void images.locate()
   // Figures change on disk while the document is open (a script or an agent redraws a plot, or
   // makes one the document already names): look again now and then while the editor is visible.
+  // Pictures only TeX can draw, drawn by the person's TeX through the worker.
+  const pictures = new PictureStore(images)
+  pictures.setEnabled(readPref('pictures') !== 'off')
   const recheckImages = () => {
-    if (document.visibilityState === 'visible') void images.revalidate()
+    if (document.visibilityState !== 'visible') return
+    void images.revalidate()
+    void pictures.revalidate()
   }
   setInterval(recheckImages, 4000)
   window.addEventListener('focus', recheckImages)
@@ -129,10 +136,71 @@ async function main(): Promise<void> {
     }
   }
 
+  /**
+   * Swaps the preview's picture placeholders (`data-pic`, where the picture begins in the source)
+   * for the drawings, keeping the same <img> across re-renders so they do not blink.
+   */
+  const previewPictureImgs = new Map<string, HTMLImageElement>()
+  const showPreviewPictures = () => {
+    const text = view.state.doc.toString()
+    const analysis = view.state.field(analysisField)
+    const head = headOf(text, analysis.scan.documentStart)
+    const fontPx = parseFloat(getComputedStyle(preview.content).fontSize) || 16
+    const used = new Set<HTMLImageElement>()
+    const image = (picture: ShownPicture, stale: boolean, inline: boolean) => {
+      let img = previewPictureImgs.get(picture.url)
+      if (!img) {
+        img = document.createElement('img')
+        img.className = 'rt-picture-img'
+        img.alt = 'Picture drawn by TeX'
+        img.src = picture.url
+        previewPictureImgs.set(picture.url, img)
+      }
+      const node = used.has(img) ? (img.cloneNode() as HTMLImageElement) : img
+      used.add(img)
+      const scale = pictures.scale(picture, fontPx)
+      node.style.width = `${(picture.width * scale).toFixed(2)}px`
+      node.style.aspectRatio = `${picture.width} / ${picture.height}`
+      node.style.verticalAlign = inline ? `${(-picture.depth * scale).toFixed(2)}px` : ''
+      node.classList.toggle('rt-picture-stale', stale)
+      node.title = `${picture.label}${picture.notes.length ? `\n${picture.notes.join('\n')}` : ''}`
+      return node
+    }
+    for (const box of preview.content.querySelectorAll<HTMLElement>('[data-pic]')) {
+      const spec = pictureAt(analysis.scan, text, Number(box.dataset.pic))
+      if (!spec) continue
+      const inline = box.classList.contains('rt-graphic-inline')
+      const v: PictureView = pictures.view(spec, head)
+      const drawing = v.state === 'drawn' ? v.picture : v.state === 'pending' || v.state === 'failed' ? v.previous : null
+      box.classList.toggle('rt-picture-pending', v.state === 'pending')
+      box.classList.toggle('rt-picture-failed', v.state === 'failed')
+      if (drawing) {
+        box.replaceChildren(image(drawing, v.state !== 'drawn', inline))
+        box.classList.add('rt-picture-loaded')
+      }
+      if (v.state === 'failed') {
+        const e = v.error
+        box.title = `${e.where === 'picture' && e.line !== null ? `Line ${e.line}: ` : ''}${e.message}${e.context ? `\n${e.context}` : ''}`
+        if (!drawing) {
+          const name = box.querySelector('.rt-graphic-name')
+          if (name) name.textContent = `Not drawn: ${e.message}`
+        }
+      } else if (v.state === 'pending' && !drawing) {
+        const name = box.querySelector('.rt-graphic-name')
+        if (name && !name.textContent?.startsWith('Drawing')) name.textContent = `Drawing ${name.textContent ?? ''} with TeX…`
+      } else if (v.state === 'off' && v.message) {
+        box.title = `Not drawn: ${v.message}`
+      }
+    }
+    // Elements of drawings no longer in the document go.
+    for (const [url, img] of previewPictureImgs) if (!used.has(img)) previewPictureImgs.delete(url)
+  }
+
   const renderNow = () => {
     const result = renderPreview(view.state.doc.toString(), { renderMath: renderMathOrThrow })
     preview.setHtml(result.html)
     showPreviewImages()
+    showPreviewPictures()
     toolbar.setWords(result.wordCount)
   }
   const countWords = () => {
@@ -166,6 +234,12 @@ async function main(): Promise<void> {
       boundaries = on
       writePref('boundaries', on ? 'on' : 'off')
       setBoundaries(view, on)
+    },
+    getPictures: () => ({ on: pictures.enabled, problem: pictures.enabled ? pictures.problem : null }),
+    setPictures: (on) => {
+      writePref('pictures', on ? 'on' : 'off')
+      pictures.setEnabled(on)
+      if (mode === 'split') renderNow()
     }
   })
 
@@ -289,7 +363,7 @@ async function main(): Promise<void> {
       toolbar.update(v)
       images.setGraphicsPath(v.state.field(analysisField).scan.graphicsPath)
     },
-    extensions: [imageLoader.of(images), dropAndPaste, trackWaiting]
+    extensions: [imageLoader.of(images), pictureRenderer.of(pictures), dropAndPaste, trackWaiting]
   })
   built = view
   // Deferred: this can fire from inside an editor update, which may not dispatch another.
@@ -298,6 +372,19 @@ async function main(): Promise<void> {
       view.dispatch({ effects: refreshImages.of(null) })
       if (mode === 'split') showPreviewImages()
     })
+  // A drawing arrived (or failed): decorate again, and fill the preview's places. Several that
+  // arrive together are handled once.
+  let picturesQueued = false
+  pictures.onChange = () => {
+    if (picturesQueued) return
+    picturesQueued = true
+    requestAnimationFrame(() => {
+      picturesQueued = false
+      view.dispatch({ effects: refreshPictures.of(null) })
+      if (mode === 'split') showPreviewPictures()
+      toolbar.update(view)
+    })
+  }
 
   app.append(toolbar.el, main)
   if (doc.readOnly) {
@@ -393,11 +480,38 @@ async function main(): Promise<void> {
     divider.addEventListener('pointercancel', up, { once: true })
   })
 
+  /** Puts the pictures drawn so far into exported HTML as SVG images (the file stands alone). */
+  async function embedPictures(html: string, text: string): Promise<string> {
+    const analysis = view.state.field(analysisField)
+    const head = headOf(text, analysis.scan.documentStart)
+    const svgs = new Map<string, string>()
+    for (const m of html.matchAll(/data-pic="(\d+)"/g)) {
+      const spec = pictureAt(analysis.scan, text, Number(m[1]))
+      if (!spec) continue
+      const v = pictures.view(spec, head)
+      if (v.state !== 'drawn') continue
+      try {
+        const svg = await (await fetch(v.picture.url)).text()
+        const scale = pictures.scale(v.picture, 16)
+        const inline = spec.mode === 'inline' || spec.mode === 'inline-math'
+        const style = `width:${(v.picture.width * scale).toFixed(2)}px;max-width:100%;${inline ? `vertical-align:${(-v.picture.depth * scale).toFixed(2)}px` : ''}`
+        svgs.set(m[1], `<img class="rt-picture-img" alt="Picture" style="${style}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`)
+      } catch {
+        // Left as its card.
+      }
+    }
+    return html.replace(/<span class="([^"]*)" data-pic="(\d+)"([^>]*)>(?:<span[^>]*><\/span>)?<span class="rt-graphic-name">[^<]*<\/span><\/span>/g, (whole, cls: string, at: string, rest: string) => {
+      const img = svgs.get(at)
+      return img ? `<span class="${cls} rt-picture-loaded"${rest}>${img}</span>` : whole
+    })
+  }
+
   async function exportHtml(): Promise<void> {
     // Only the desktop app's isolated frames can save files; the manifest asks for one.
     if (!orca.files) return
     const text = view.state.doc.toString()
     const result = renderPreview(text, { renderMath: renderMathOrThrow })
+    result.html = await embedPictures(result.html, text)
     let css = ''
     try {
       css = await (await fetch('preview.css')).text()

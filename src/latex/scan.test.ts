@@ -256,3 +256,14 @@ test('a commented-out chapter does not change section numbers', () => {
   const h = r.constructs.find((c) => c.kind === 'heading')
   assert.equal(h && 'number' in h ? h.number : null, '1')
 })
+
+test('pictures in a line of text: \\tikz and \\xymatrix', () => {
+  const src = 'a \\tikz[baseline] \\draw[x={(1,0)}] (0,0) -- (1,{2;3}); b \\tikz{\\node{x};} c \\xymatrix@C=1em@R-2pt{A & B} d \\tikz unfinished'
+  const pictures = scan(src).constructs.filter((c) => c.kind === 'picture')
+  assert.deepEqual(
+    pictures.map((p) => slice(src, p)),
+    ['\\tikz[baseline] \\draw[x={(1,0)}] (0,0) -- (1,{2;3});', '\\tikz{\\node{x};}', '\\xymatrix@C=1em@R-2pt{A & B}']
+  )
+  assert.equal(first('\\begin{xy}(0,0)*{A}\\end{xy}', 'verbatim')?.env, 'xy')
+  assert.equal(scan('x \\tikz \\draw (0,0)\n\nnext; y').constructs.filter((c) => c.kind === 'picture').length, 0, 'a paragraph break ends the search')
+})

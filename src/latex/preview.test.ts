@@ -443,3 +443,16 @@ test('an inline formula with an unclosed brace stops at its own closing $', () =
   assert.ok(text(out).includes('and text. More text.'))
   assert.ok(html('$a \\text{ if $b$ } c$').includes('{I:a \\text{ if $b$ } c}'))
 })
+
+test('pictures TeX draws are marked with where they begin, for the editor to draw', () => {
+  const src = 'A \\tikz \\fill (0,0) circle (1pt); B\n\n\\begin{tikzpicture}\\draw (0,0);\\end{tikzpicture}\n\n\\[\\xymatrix{A \\ar[r] & B}\\]\n\n\\begin{asy}draw((0,0));\\end{asy}\n\n\\begin{equation}\\xymatrix{X}\\label{eq:x}\\end{equation} and \\eqref{eq:x}'
+  const out = html(src)
+  const marks = [...out.matchAll(/data-pic="(\d+)"/g)].map((m) => src.slice(Number(m[1]), Number(m[1]) + 8))
+  assert.deepEqual(marks, ['\\tikz \\f', '\\begin{t', '\\[\\xymat', '\\begin{e'])
+  assert.ok(out.includes('rt-graphic-inline'))
+  assert.match(out, /asy picture/, 'asy needs shell escape: a card, not drawn')
+  assert.match(out, /\(1\)/, 'the equation is still numbered and its label resolves')
+  const files = html('\\input{figures/loss.pgf}\n\n\\input{chapters/one}')
+  assert.match(files, /data-pic="0"/)
+  assert.match(files, /Included file/)
+})

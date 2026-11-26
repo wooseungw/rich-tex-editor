@@ -28,6 +28,9 @@ export interface ToolbarHost {
   insertImage(): void
   getBoundaries(): boolean
   setBoundaries(on: boolean): void
+  /** Drawing TikZ and other TeX-only pictures with the person's TeX; `problem` says why it cannot. */
+  getPictures(): { on: boolean; problem: string | null }
+  setPictures(on: boolean): void
 }
 
 interface FormatButton {
@@ -115,6 +118,7 @@ export class Toolbar {
   private readonly redoBtn: HTMLButtonElement
   private readonly symbols: HTMLElement
   private readonly boundaryBtn: HTMLButtonElement
+  private readonly picturesBtn: HTMLButtonElement
   private readOnly = false
 
   constructor(private readonly host: ToolbarHost) {
@@ -206,6 +210,12 @@ export class Toolbar {
       this.update(this.host.getView())
     })
 
+    this.picturesBtn = button('', 'Draw TikZ and other pictures with your TeX', 'shapes')
+    this.picturesBtn.addEventListener('click', () => {
+      this.host.setPictures(!this.host.getPictures().on)
+      this.update(this.host.getView())
+    })
+
     const exportBtn = button('', 'Export as HTML', 'download')
     exportBtn.addEventListener('click', () => this.host.exportHtml())
 
@@ -236,7 +246,7 @@ export class Toolbar {
       group(insert),
       spacer,
       this.words,
-      group(this.boundaryBtn, find, exportBtn),
+      group(this.picturesBtn, this.boundaryBtn, find, exportBtn),
       this.symbols
     )
   }
@@ -337,6 +347,14 @@ export class Toolbar {
     this.boundaryBtn.setAttribute('aria-pressed', String(on))
     // Only the visual view folds or marks environment lines.
     this.boundaryBtn.hidden = mode !== 'visual'
+    const pictures = this.host.getPictures()
+    this.picturesBtn.classList.toggle('rt-active', pictures.on && !pictures.problem)
+    this.picturesBtn.setAttribute('aria-pressed', String(pictures.on))
+    this.picturesBtn.title = pictures.problem
+      ? `Pictures are shown as code: ${pictures.problem}`
+      : pictures.on
+        ? 'Drawing TikZ and other pictures with your TeX (click to show their code)'
+        : 'Draw TikZ and other pictures with your TeX'
     for (const [m, b] of this.modeButtons) {
       b.setAttribute('aria-checked', String(m === mode))
       b.classList.toggle('rt-active', m === mode)

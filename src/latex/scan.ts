@@ -116,6 +116,12 @@ export interface VerbatimConstruct extends Span {
 }
 
 /** A `tabular`-like environment, from `\begin` to its `\end`, drawn as a table. */
+/** A picture only TeX draws that sits in a line of text: `\tikz …;`, `\tikz{…}`, `\xymatrix{…}`. */
+export interface PictureConstruct extends Span {
+  kind: 'picture'
+  cmd: 'tikz' | 'xymatrix'
+}
+
 export interface TableConstruct extends Span {
   kind: 'table'
   env: string
@@ -134,6 +140,7 @@ export interface BibitemConstruct extends Span {
 }
 
 export type Construct =
+  | PictureConstruct
   | TableConstruct
   | LayoutConstruct
   | BibitemConstruct
@@ -235,10 +242,21 @@ const PICTURE_ENVIRONMENTS = new Set([
   'pspicture',
   'asy',
   'tikzcd',
+  'xy',
+  'pspicture*',
   'dot2tex',
   'gnuplot',
   'pythontex'
 ])
+
+/** Pictures the person's TeX draws (asy, dot2tex, gnuplot and pythontex need shell escape: never). */
+export const TEX_PICTURES: ReadonlySet<string> = new Set(['tikzpicture', 'tikzcd', 'circuitikz', 'forest', 'pgfpicture', 'picture', 'pspicture', 'pspicture*', 'xy'])
+
+/** A file `\input` as a picture: matplotlib's PGF output, a TikZ figure kept on its own. */
+export const PICTURE_FILE = /\.(?:pgf|tikz)$/i
+
+/** Math KaTeX cannot draw but TeX can: commutative diagrams written inside math. */
+export const needsTex = (math: string) => /\\xymatrix\b|\\xygraph\b|\\begin\s*\{(?:tikzcd|xy)\}|\\tikz\b/.test(math)
 
 const FORMAT_COMMANDS: Readonly<Record<string, FormatStyle>> = {
   textbf: 'bold',
@@ -392,11 +410,11 @@ const SCALING_BOX_OPEN = /\\(?:resizebox\*?\s*\{[^{}]*\}\s*\{[^{}]*\}|scalebox\s
 const SCALING_BOX_CLOSE = /^(?:[ \t]*%[^\n]*\n)*\s*\}/
 
 /**
- * The box around a table that only scales it, as in `\resizebox{\textwidth}{!}{%` … `\end{tabular}}`.
- * The table is drawn with its box, so lines the box shares with the table don't stop it being
+ * The box around a table or picture that only scales it, as in `\resizebox{\textwidth}{!}{%` …
+ * `\end{tabular}}`. It is drawn with its box, so lines the box shares with it don't stop it being
  * drawn.
  */
-function scalingBoxAround(text: string, from: number, to: number): { from: number; to: number } | null {
+export function scalingBoxAround(text: string, from: number, to: number): { from: number; to: number } | null {
   const open = SCALING_BOX_OPEN.exec(text.slice(Math.max(0, from - 240), from))
   if (!open) return null
   const close = SCALING_BOX_CLOSE.exec(text.slice(to, to + 240))
@@ -664,6 +682,54 @@ class Scanner {
   }
 
   /** Skips any number of `[...]` optional arguments; returns where they end. */
+  /** The end of `\tikz[…] {…}` or `\tikz[…] \draw …;`: the `;` outside braces and brackets. */
+  private tikzEnd(at: number, end: number): number {
+    const text = this.text
+    let pos = at
+    while (text[pos] === ' ' || text[pos] === '\t') pos++
+    for (let n = 0; n < 2 && text[pos] === '['; n++) {
+      const opt = this.readGroup(pos, end, '[', ']')
+      if (!opt) return -1
+      pos = opt.to
+      while (text[pos] === ' ' || text[pos] === '\t') pos++
+    }
+    if (text[pos] === '{') return this.readGroup(pos, end, '{', '}', false)?.to ?? -1
+    const limit = Math.min(end, pos + 4000)
+    let depth = 0
+    for (let i = pos; i < limit; i++) {
+      const c = text[i]
+      if (c === '\\') i++
+      else if (c === '%') {
+        const eol = text.indexOf('\n', i)
+        if (eol < 0) return -1
+        i = eol
+      } else if (c === '{' || c === '[') depth++
+      else if (c === '}' || c === ']') depth--
+      else if (c === ';' && depth === 0) return i + 1
+      else if (c === '\n' && text[i + 1] === '\n') return -1
+      if (depth < 0) return -1
+    }
+    return -1
+  }
+
+  /** The end of `\xymatrix@C=2em{…}`. */
+  private xymatrixEnd(at: number, end: number): number {
+    const text = this.text
+    let pos = at
+    // Spacing options: `@C=1em`, `@R-1pc`, `@!0`, `@M=2pt`, `@*[r]`.
+    while (pos < end && (text[pos] === '@' || text[pos] === ' ')) {
+      if (text[pos] === ' ') {
+        pos++
+        continue
+      }
+      const m = /^@(?:[!*]?[A-Za-z]?[=+-]?(?:\[[^\]]*\]|[-\d.]+(?:em|ex|pt|pc|mm|cm|in)?)?)?/.exec(text.slice(pos, pos + 40))
+      if (!m || m[0].length === 0) return -1
+      pos += m[0].length
+    }
+    if (text[pos] !== '{') return -1
+    return this.readGroup(pos, end, '{', '}', false)?.to ?? -1
+  }
+
   private skipOptionals(at: number, end: number, max = 2): { end: number; first: Group | null } {
     let first: Group | null = null
     let pos = at
@@ -886,6 +952,8 @@ class Scanner {
 
     let nameEnd = at + 1
     while (nameEnd < end && isLetter(text[nameEnd])) nameEnd++
+    // `@` is a letter here (\makeatletter code), but `\xymatrix@C=1em{…}` takes spacing options.
+    if (text.startsWith('xymatrix@', at + 1)) nameEnd = at + 1 + 'xymatrix'.length
     const name = text.slice(at + 1, nameEnd)
     let pos = nameEnd
 
@@ -1147,6 +1215,13 @@ class Scanner {
     if (name === 'today') {
       this.constructs.push({ kind: 'symbol', from: at, to: pos, text: todayText() })
       return pos
+    }
+
+    if (name === 'tikz' || name === 'xymatrix') {
+      const to = name === 'tikz' ? this.tikzEnd(pos, end) : this.xymatrixEnd(pos, end)
+      if (to < 0) return pos
+      this.constructs.push({ kind: 'picture', from: at, to, cmd: name })
+      return to
     }
 
     if (name === 'verb') {

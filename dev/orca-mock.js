@@ -1,5 +1,7 @@
 // A stand-in for the `orca` global Orca's frame shell provides, for dev/harness.html.
-// Query: file=<path from dev/>, theme=light|dark, mode=visual|split, readonly
+// Query: file=<path from dev/>, theme=light|dark, mode=visual|split, readonly,
+//        tex=<port of dev/tex-server.mjs>&token=<the token it prints> to draw TikZ with this
+//        computer's TeX
 ;(() => {
   const params = new URLSearchParams(location.search)
   const theme = params.get('theme') === 'dark' ? 'dark' : 'light'
@@ -137,8 +139,22 @@
       return { path: up.path }
     }
   }
+  const texPort = params.get('tex')
+  const texToken = params.get('token') ?? ''
   window.orca.plugin = {
-    request: async (name, input) => {
+    request: async (name, input, options = {}) => {
+      // Pictures go to dev/tex-server.mjs, which runs the worker's own handlers.
+      if (texPort && /^(?:tex\.tools|text\.put|picture\.)/.test(name)) {
+        const res = await fetch(`http://127.0.0.1:${texPort}/request`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-rte-token': texToken },
+          body: JSON.stringify({ name, input }),
+          signal: options.signal
+        })
+        const answer = await res.json()
+        if (!answer.ok) throw Object.assign(new Error(answer.message), { code: answer.code })
+        return answer.output
+      }
       const handler = handlers[name]
       if (!handler) throw Object.assign(new Error(`unknown_method: ${name}`), { code: 'unknown_method' })
       return handler(input)

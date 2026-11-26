@@ -2,6 +2,8 @@ import { type EditorView, WidgetType } from '@codemirror/view'
 import type { MacroMap } from '../latex/macros'
 import { renderFragment } from './fragment'
 import { imageLoader, type LoadedImage } from './image-loader'
+import type { FailedPicture } from '../protocol'
+import { pictureRenderer, type PictureView, type ShownPicture } from './picture-spec'
 import { renderMath } from './math-render'
 
 /**
@@ -241,6 +243,211 @@ export class TableWidget extends RevealWidget {
   }
   override get estimatedHeight(): number {
     return 24 * (this.source.split('\\\\').length + 1)
+  }
+}
+
+/**
+ * A picture TeX drew (TikZ, pgfplots, tikz-cd…), or where it stands until it is drawn.
+ * `block` and `inline` replace the source; `preview` shows under the source while it is edited;
+ * `status` says, under the source, that it is being drawn or why it could not be.
+ */
+export type PicturePlacement = 'block' | 'inline' | 'preview' | 'status'
+
+export class PictureWidget extends RevealWidget {
+  constructor(
+    readonly view: PictureView,
+    readonly placement: PicturePlacement,
+    reveal: number,
+    /** Document position of each line of the picture's source, for links to an error's line. */
+    readonly lineStarts: readonly number[],
+    readonly retry: (() => void) | null = null
+  ) {
+    super(reveal)
+  }
+
+  /** What is drawn: a widget with the same identity is kept, so a redraw does not flicker. */
+  private get identity(): string {
+    const v = this.view
+    const shown = (p: ShownPicture | null) => (p ? p.url : '')
+    switch (v.state) {
+      case 'off':
+        return `off|${v.message ?? ''}`
+      case 'drawn':
+        return `drawn|${v.picture.url}`
+      case 'pending':
+        return `pending|${shown(v.previous)}`
+      case 'failed':
+        return `failed|${v.error.key}|${v.error.message}|${v.error.line}|${shown(v.previous)}`
+    }
+  }
+
+  override eq(other: PictureWidget): boolean {
+    return other.placement === this.placement && other.reveal === this.reveal && other.identity === this.identity && other.lineStarts.join() === this.lineStarts.join()
+  }
+
+  override toDOM(editor: EditorView): HTMLElement {
+    const inline = this.placement === 'inline'
+    const el = document.createElement(inline ? 'span' : 'div')
+    el.className = `cm-rt-picture cm-rt-picture-${this.placement}`
+    const v = this.view
+    const picture = v.state === 'drawn' ? v.picture : v.state === 'pending' || v.state === 'failed' ? v.previous : null
+    if (picture && this.placement !== 'status') {
+      el.append(this.image(editor, picture, v.state !== 'drawn'))
+      // What was set aside to draw it here (a package not installed on this computer…).
+      const setAside = picture.notes.filter((n) => /not installed|skipped|reduced|no preamble/.test(n))
+      if (setAside.length && this.placement !== 'inline') {
+        const caption = document.createElement('div')
+        caption.className = 'cm-rt-picture-caption'
+        caption.textContent = setAside.join(' · ')
+        el.append(caption)
+      }
+      if (picture.wantsLua && this.placement !== 'inline') {
+        const lua = this.luaChoice(editor)
+        if (lua) el.append(lua)
+      }
+    }
+    if (v.state === 'pending' && this.placement !== 'inline') {
+      const note = document.createElement('div')
+      note.className = 'cm-rt-picture-note cm-rt-picture-working'
+      note.textContent = picture ? 'Redrawing with TeX…' : 'Drawing with TeX…'
+      el.append(note)
+    } else if (v.state === 'failed' && this.placement !== 'inline') {
+      el.append(this.failure(editor, v.error))
+    } else if (v.state === 'off' && v.message) {
+      const note = document.createElement('div')
+      note.className = 'cm-rt-picture-note'
+      note.textContent = `Not drawn: ${v.message}`
+      el.append(note)
+    }
+    if (v.state === 'failed') el.classList.add('cm-rt-picture-failed')
+    if (this.placement === 'block' || this.placement === 'inline') {
+      el.title = picture ? `${picture.label}${picture.notes.length ? `\n${picture.notes.join('\n')}` : ''}\nClick to edit` : 'Click to edit'
+      return this.mark(el)
+    }
+    return el
+  }
+
+  private image(editor: EditorView, picture: ShownPicture, dim: boolean): HTMLElement {
+    const renderer = editor.state.facet(pictureRenderer)
+    const fontPx = parseFloat(getComputedStyle(editor.contentDOM).fontSize) || 16
+    const scale = renderer ? renderer.scale(picture, fontPx) : 1.33
+    const img = document.createElement('img')
+    img.className = 'cm-rt-picture-img'
+    img.alt = 'Picture drawn by TeX'
+    img.draggable = false
+    img.src = picture.url
+    img.style.width = `${(picture.width * scale).toFixed(2)}px`
+    img.style.aspectRatio = `${picture.width} / ${picture.height}`
+    if (this.placement === 'inline') img.style.verticalAlign = `${(-picture.depth * scale).toFixed(2)}px`
+    if (dim) img.classList.add('cm-rt-picture-stale')
+    if (picture.notes.some((n) => /not installed|skipped|reduced|no preamble/.test(n))) img.classList.add('cm-rt-picture-noted')
+    return img
+  }
+
+  private failure(editor: EditorView, error: FailedPicture): HTMLElement {
+    const box = document.createElement('div')
+    box.className = 'cm-rt-picture-note cm-rt-picture-error'
+    const head = document.createElement('div')
+    const where = document.createElement('span')
+    where.className = 'cm-rt-picture-where'
+    if (error.where === 'picture' && error.line !== null) {
+      const link = document.createElement('a')
+      link.href = '#'
+      const pos = this.lineStarts[error.line - 1]
+      // The document's line number, as the person sees it in the gutter and in TeX's own log.
+      link.textContent = pos !== undefined && pos <= editor.state.doc.length ? `Line ${editor.state.doc.lineAt(pos).number}` : `Line ${error.line} of the picture`
+      link.addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (pos === undefined || pos > editor.state.doc.length) return
+        const line = editor.state.doc.lineAt(pos)
+        editor.dispatch({ selection: { anchor: line.to }, scrollIntoView: true, userEvent: 'select.pointer' })
+        editor.focus()
+      })
+      where.append(link)
+    } else {
+      where.textContent = error.where === 'preamble' ? 'Preamble' : error.where === 'file' ? (error.file ?? 'File') : error.label || 'TeX'
+    }
+    const message = document.createElement('span')
+    message.className = 'cm-rt-picture-message'
+    message.textContent = error.message
+    head.append(where, document.createTextNode(': '), message)
+    box.append(head)
+    if (error.context) {
+      const context = document.createElement('code')
+      context.className = 'cm-rt-picture-context'
+      context.textContent = error.context
+      box.append(context)
+    }
+    const more: string[] = []
+    if (error.reason === 'timeout') more.push('TeX took too long. Large plots can be compiled to an image and \\includegraphics-ed instead.')
+    if (error.where === 'file' && error.file && /\.(?:csv|dat|txt|tsv|tex|tikz)$/.test(error.file)) {
+      more.push('Files the picture reads are looked for next to this document; a document on an SSH host is drawn from its text alone.')
+    }
+    more.push(...error.notes)
+    if (more.length) {
+      const notes = document.createElement('div')
+      notes.className = 'cm-rt-picture-notes'
+      notes.textContent = more.join(' · ')
+      box.append(notes)
+    }
+    // Trying again helps when something outside the picture changes (a package installed, a
+    // slow machine); an error in the picture is fixed by editing it.
+    if (error.wantsLua) {
+      const lua = this.luaChoice(editor)
+      if (lua) box.append(lua)
+    }
+    if (this.retry && error.where !== 'picture') {
+      const retry = document.createElement('button')
+      retry.type = 'button'
+      retry.className = 'cm-rt-picture-retry'
+      retry.textContent = 'Try again'
+      const run = this.retry
+      retry.addEventListener('mousedown', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        run()
+      })
+      box.append(retry)
+    }
+    return box
+  }
+
+  /**
+   * The document is written for LuaLaTeX, drawn with XeLaTeX instead: LuaLaTeX runs the
+   * document's Lua, which can read any file, so it waits for the person's say-so.
+   */
+  private luaChoice(editor: EditorView): HTMLElement | null {
+    const renderer = editor.state.facet(pictureRenderer)
+    if (!renderer?.canAllowLua()) return null
+    const line = document.createElement('div')
+    line.className = 'cm-rt-picture-caption'
+    line.append(document.createTextNode('Drawn with XeLaTeX. This document asks for LuaLaTeX, which runs the Lua code in it, and that code can read any file on this computer. '))
+    const allow = document.createElement('button')
+    allow.type = 'button'
+    allow.className = 'cm-rt-picture-retry'
+    allow.textContent = 'Use LuaLaTeX for this document'
+    allow.title =
+      'LuaLaTeX runs the Lua code written in this document, and that code can read any file on this computer. Allow it only for documents you trust.'
+    allow.addEventListener('mousedown', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      renderer.allowLua()
+    })
+    line.append(allow)
+    return line
+  }
+
+  override get estimatedHeight(): number {
+    if (this.placement === 'inline') return -1
+    const v = this.view
+    const picture = v.state === 'drawn' ? v.picture : v.state === 'pending' || v.state === 'failed' ? v.previous : null
+    return picture ? Math.min(600, picture.height * 1.6 + 8) : 40
+  }
+
+  override ignoreEvent(event: Event): boolean {
+    // Under the source, the widget keeps its clicks (its links and button handle their own).
+    return this.placement === 'preview' || this.placement === 'status' ? true : super.ignoreEvent(event)
   }
 }
 

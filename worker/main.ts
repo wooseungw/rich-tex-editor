@@ -1,5 +1,6 @@
 // The Rich TeX Editor's worker: the editor frame has no file system, so it asks here to find its
-// .tex file, save dropped images next to it and read the images it references (src/protocol.ts).
+// .tex file, save dropped images next to it, read the images it references, and draw the
+// pictures only TeX can draw with the person's own TeX (src/protocol.ts, worker/pictures.ts).
 // Inputs come from a frame that renders untrusted .tex content: everything is validated.
 import type { OrcaWorkerApi } from 'orca/worker'
 import * as fs from 'node:fs/promises'
@@ -23,6 +24,7 @@ import {
   stillMatches,
   writeUnique
 } from './files'
+import { registerPictures } from './pictures'
 
 const UPLOAD_IDLE_MS = 2 * 60 * 1000
 const MAX_UPLOADS = 8
@@ -132,6 +134,9 @@ export default function activate(orca: OrcaWorkerApi) {
     found.touched = Date.now()
     return found
   }
+
+  // Pictures only TeX can draw (TikZ, pgfplots, tikz-cd…), drawn with the person's TeX.
+  registerPictures(orca, (location) => place(location))
 
   orca.panels.handle('tex.locate', async (input) => {
     const { sha256, bytes } = fields(input)
