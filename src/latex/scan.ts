@@ -386,6 +386,24 @@ export const TABLE_ENVIRONMENTS: ReadonlySet<string> = new Set([
   'longtable*'
 ])
 
+/** `\resizebox{w}{h}{` or `\scalebox{s}[v]{` opened right before a table (a `%` may end its line). */
+const SCALING_BOX_OPEN = /\\(?:resizebox\*?\s*\{[^{}]*\}\s*\{[^{}]*\}|scalebox\s*\{[^{}]*\}(?:\s*\[[^\]]*\])?)\s*\{(?:[ \t]*%[^\n]*\n)?\s*$/
+/** The `}` that closes that box, right after the table's `\end{…}`. */
+const SCALING_BOX_CLOSE = /^(?:[ \t]*%[^\n]*\n)*\s*\}/
+
+/**
+ * The box around a table that only scales it, as in `\resizebox{\textwidth}{!}{%` … `\end{tabular}}`.
+ * The table is drawn with its box, so lines the box shares with the table don't stop it being
+ * drawn.
+ */
+function scalingBoxAround(text: string, from: number, to: number): { from: number; to: number } | null {
+  const open = SCALING_BOX_OPEN.exec(text.slice(Math.max(0, from - 240), from))
+  if (!open) return null
+  const close = SCALING_BOX_CLOSE.exec(text.slice(to, to + 240))
+  if (!close) return null
+  return { from: from - open[0].length, to: to + close[0].length }
+}
+
 const LAYOUT_COMMANDS = new Set([
   'centering',
   'raggedright',
@@ -1285,7 +1303,10 @@ class Scanner {
 
     if (begin && TABLE_ENVIRONMENTS.has(name)) {
       const close = this.findMatchingEnd(name, arg.to, end)
-      if (close >= 0) this.constructs.push({ kind: 'table', from: at, to: close, env: name })
+      if (close >= 0) {
+        const box = scalingBoxAround(text, at, close)
+        this.constructs.push({ kind: 'table', from: box?.from ?? at, to: box?.to ?? close, env: name })
+      }
     }
 
     let to = arg.to

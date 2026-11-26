@@ -641,6 +641,13 @@ mark.rt-hl {
 .rt-tabular td {
   padding: 0.22em 0.65em;
   vertical-align: top;
+  /* LaTeX never breaks an l, c or r cell: a table wider than the pane scrolls instead of
+     squeezing its columns until Korean text breaks between syllables. */
+  white-space: nowrap;
+}
+.rt-tabular td.rt-wrap {
+  white-space: normal;
+  word-break: keep-all;
 }
 .rt-tabular td.rt-al-p {
   min-width: 6em;

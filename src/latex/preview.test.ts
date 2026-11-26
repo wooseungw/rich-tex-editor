@@ -262,7 +262,15 @@ a & b & c \\ \hline\hline
   assert.match(booktabs, /<tr class="rt-rt-thick"[^>]*><td class="rt-al-l">H/)
   assert.match(booktabs, /<tr class="rt-rt-thin rt-rb-thick"/)
   const px = html('\\begin{tabular}{>{\\centering\\arraybackslash}p{2cm}*{2}{c}} a & b & c \\end{tabular}')
-  assert.ok(px.includes('<td class="rt-al-c" style="width:2cm">a</td>'), px)
+  assert.ok(px.includes('<td class="rt-al-c rt-wrap" style="width:2cm">a</td>'), px)
+  assert.ok(px.includes('<td class="rt-al-c">b</td>'), px)
+})
+
+test('tabular: only paragraph columns wrap', () => {
+  const out = html(String.raw`\begin{tabularx}{\linewidth}{lX} 잡음 바닥 (b) & long text \\ \multicolumn{2}{p{3cm}}{note} \end{tabularx}`)
+  assert.ok(out.includes('<td class="rt-al-l">잡음 바닥 (b)</td>'), out)
+  assert.ok(out.includes('<td class="rt-al-p rt-wrap">long text</td>'), out)
+  assert.ok(out.includes('<td class="rt-al-p rt-wrap" colspan="2">note</td>'), out)
 })
 
 test('figures, tables and includegraphics placeholders', () => {

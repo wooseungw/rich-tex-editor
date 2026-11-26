@@ -810,6 +810,8 @@ const clickHandlers = EditorView.domEventHandlers({
     }
     const widget = target.closest<HTMLElement>('[data-rt-reveal]')
     if (!widget || !view.contentDOM.contains(widget)) return false
+    // A press on a wide table's scrollbar scrolls it (the browser's default) instead of opening it.
+    if (target.classList.contains('rt-table-wrap') && event.offsetY >= target.clientHeight) return true
     const start = view.posAtDOM(widget)
     const offset = Number(widget.dataset.rtReveal) || 0
     event.preventDefault()

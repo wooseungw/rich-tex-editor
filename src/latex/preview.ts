@@ -502,6 +502,8 @@ interface TableSegment {
 interface Column {
   align: string
   width: string | null
+  /** A paragraph column (`p{…}`, `X`, tabulary's `L`…): its text wraps; `l`, `c` and `r` never do. */
+  wrap: boolean
 }
 
 /** Output buffer for one flow: finished blocks plus the paragraph being built (block mode), or a
@@ -2700,12 +2702,13 @@ class Renderer {
         const cell = this.tableCell(range, isArray)
         const span = cell.span
         const own = cell.cols
-        const align = own ? own.cols[0]?.align ?? 'l' : spec.cols[col]?.align ?? 'l'
-        const width = own ? null : spec.cols[col]?.width ?? null
+        const column = own ? own.cols[0] : spec.cols[col]
+        const align = column?.align ?? 'l'
+        const width = own ? null : column?.width ?? null
         const left = own ? own.vlines[0] > 0 : col === 0 && spec.vlines[0] > 0
         const right = own ? (own.vlines[own.cols.length] ?? 0) > 0 : (spec.vlines[col + span] ?? 0) > 0
         const cline = row.clines.some(([a, b]) => a <= col + 1 && b >= col + span)
-        const c = `rt-al-${align}${left ? ' rt-vl' : ''}${right ? ' rt-vr' : ''}${cline ? ' rt-cl' : ''}`
+        const c = `rt-al-${align}${column?.wrap ? ' rt-wrap' : ''}${left ? ' rt-vl' : ''}${right ? ' rt-vr' : ''}${cline ? ' rt-cl' : ''}`
         cells += `<td class="${c}"${span > 1 ? ` colspan="${span}"` : ''}${width ? ` style="width:${width}"` : ''}>${cell.html}</td>`
         col += span
       }
@@ -3091,7 +3094,7 @@ function parseColumns(spec: string): { cols: Column[]; vlines: number[] } {
       if (c === '|') vlines[cols.length]++
       else if (c === 'l' || c === 'c' || c === 'r' || c === 'L' || c === 'C' || c === 'R' || c === 'J' || c === 'S' || c === 'X' || c === 'Y' || c === 'Z') {
         const align = c === 'J' || c === 'X' || c === 'Y' || c === 'Z' ? 'p' : c === 'S' ? 'c' : c.toLowerCase()
-        cols.push({ align: pendingAlign ?? align, width: null })
+        cols.push({ align: pendingAlign ?? align, width: null, wrap: 'LCRJXYZ'.includes(c) })
         vlines.push(0)
         pendingAlign = null
         if (c === 'S' || c === 'X') {
@@ -3104,21 +3107,21 @@ function parseColumns(spec: string): { cols: Column[]; vlines: number[] } {
         }
       } else if (c === 'p' || c === 'm' || c === 'b') {
         const g = readGroup(str, i + 1)
-        cols.push({ align: pendingAlign ?? 'p', width: cssLength(g.content) })
+        cols.push({ align: pendingAlign ?? 'p', width: cssLength(g.content), wrap: true })
         vlines.push(0)
         pendingAlign = null
         i = g.next - 1
       } else if (c === 'w' || c === 'W') {
         const a = readGroup(str, i + 1)
         const b = readGroup(str, a.next)
-        cols.push({ align: /^[lcr]$/.test(a.content.trim()) ? a.content.trim() : 'l', width: cssLength(b.content) })
+        cols.push({ align: /^[lcr]$/.test(a.content.trim()) ? a.content.trim() : 'l', width: cssLength(b.content), wrap: false })
         vlines.push(0)
         i = b.next - 1
       } else if (c === 'D') {
         let g = readGroup(str, i + 1)
         g = readGroup(str, g.next)
         g = readGroup(str, g.next)
-        cols.push({ align: 'c', width: null })
+        cols.push({ align: 'c', width: null, wrap: false })
         vlines.push(0)
         i = g.next - 1
       } else if (c === '>') {
@@ -3141,7 +3144,7 @@ function parseColumns(spec: string): { cols: Column[]; vlines: number[] } {
         const g = readGroup(str, i)
         i = g.next - 1
       } else if (/[a-zA-Z]/.test(c)) {
-        cols.push({ align: 'l', width: null })
+        cols.push({ align: 'l', width: null, wrap: false })
         vlines.push(0)
       }
     }

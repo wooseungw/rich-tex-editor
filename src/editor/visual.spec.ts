@@ -225,6 +225,19 @@ test('a tabular on its own lines is drawn as a table', () => {
   assert.ok(!r.seen.some((s) => s.widget instanceof MathWidget))
 })
 
+test('a tabular inside \\resizebox is drawn as a table with its box', () => {
+  const src = 'Before|\n\\resizebox{\\textwidth}{!}{%\n\\begin{tabular}{lr}\na & $-0.8$ \\\\\n\\end{tabular}}\nAfter'
+  const r = decorations(src)
+  const table = r.seen.find((s) => s.widget instanceof TableWidget)
+  assert.ok(table)
+  assert.equal(table.block, true)
+  assert.equal(r.doc.slice(table.from, table.to), '\\resizebox{\\textwidth}{!}{%\n\\begin{tabular}{lr}\na & $-0.8$ \\\\\n\\end{tabular}}')
+  assert.ok(!r.seen.some((s) => s.widget instanceof MathWidget))
+  // Text after the box on the same line keeps the table in source form.
+  const shared = decorations('|x\n\\scalebox{0.8}{\\begin{tabular}{l}\na\n\\end{tabular}} tail')
+  assert.ok(!shared.seen.some((s) => s.widget instanceof TableWidget))
+})
+
 test('theorems get their numbered title, proofs end with a box', () => {
   const r = decorations('|x\n\\begin{theorem}[Main]\nBody.\n\\end{theorem}\n\\begin{proof}\nEasy.\n\\end{proof}')
   const titles = r.seen.filter((s) => s.widget instanceof EnvTitleWidget).map((s) => (s.widget as EnvTitleWidget).title)
